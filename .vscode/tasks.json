@@ -1,0 +1,50 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "rust: build debug (rpi zero 2 w)",
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--target=aarch64-unknown-linux-gnu"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+        },
+        {
+            "label": "rust: build release (rpi zero 2 w)",
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--release",
+                "--target=aarch64-unknown-linux-gnu"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+        },
+        {
+            "label": "rust: write rpi",
+            "dependsOn": "rust: build release (rpi zero 2 w)",
+            "group": "build",
+            "type": "shell",
+            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+        },
+        {
+            "label": "debug: write",
+            "dependsOn": "rust: build debug (rpi zero 2 w)",
+            "type": "shell",
+            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/debug/",
+        },
+        {
+            "label": "debug: setup",
+            "dependsOn": "debug: write",
+            "type": "shell",
+            "command": "ssh saltyfishie@169.254.0.100 \"sh -c 'nohup lldb-server platform --server --listen *:17777' > /dev/null 2>&1 &\"",
+            "group": "build"
+        }
+    ]
+}
