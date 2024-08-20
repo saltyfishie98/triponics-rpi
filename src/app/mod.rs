@@ -2,25 +2,29 @@ pub mod alarm;
 pub mod signal;
 
 pub struct App {
-    actor_addr: Vec<Box<dyn ActorProxy>>,
+    actor_addr_vec: Vec<Box<dyn ActorProxy>>,
 }
 impl App {
     pub fn new() -> Self {
         Self {
-            actor_addr: Vec::new(),
+            actor_addr_vec: Vec::new(),
         }
     }
 
-    pub fn with_actor(self, addr_proxy: impl ActorProxy + 'static) -> Self {
-        let Self { mut actor_addr } = self;
-
-        actor_addr.push(Box::new(addr_proxy));
-        Self { actor_addr }
+    pub fn with_actor<T>(self, actor: T) -> Self
+    where
+        T: actix::Actor<Context = actix::Context<T>>
+            + actix::Handler<signal::StopSignal>
+            + actix::Handler<signal::TerminateSignal>,
+    {
+        let Self { mut actor_addr_vec } = self;
+        actor_addr_vec.push(Box::new(actor.start()));
+        Self { actor_addr_vec }
     }
 
     pub async fn signal(self) {
         tokio::signal::ctrl_c().await.unwrap();
-        for addr in self.actor_addr.into_iter() {
+        for addr in self.actor_addr_vec.into_iter() {
             addr.clean().await.unwrap();
         }
     }

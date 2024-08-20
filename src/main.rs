@@ -5,12 +5,9 @@ use app::*;
 
 #[actix::main]
 async fn main() {
-    use actix::Actor;
-
-    println!("hello!");
     let app = App::new()
-        .with_actor(actor::Mqtt::new().start())
-        .with_actor(actor::Database::new().start());
+        .with_actor(actor::Mqtt::new())
+        .with_actor(actor::Database::new());
 
     app.signal().await;
     println!("bye!");
