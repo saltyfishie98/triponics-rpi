@@ -1,73 +1,70 @@
-use actix::{ActorContext, AsyncContext};
+use actix::ActorContext;
 use actix_broker::BrokerSubscribe;
 
 use crate::{app, log};
 
+use super::input_controller;
+
 #[derive(Debug, app::signal::Terminate)]
 pub struct Mqtt {
-    task_handle: Option<tokio::task::JoinHandle<()>>,
+    task_resrc: Option<(tokio::sync::mpsc::Receiver<serde_json::Value>,)>,
+    task_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
 }
 impl Mqtt {
     pub fn new() -> Self {
-        Self { task_handle: None }
+        let (task_tx, rx) = tokio::sync::mpsc::channel(10);
+        Self {
+            task_resrc: Some((rx,)),
+            task_tx,
+        }
     }
 
-    async fn task(self_addr: actix::Addr<Self>) {
-        while self_addr.connected() {
-            let event = event::incoming_payload::Data;
-            log::trace!("emitted: {event:?}");
-
-            if self_addr.send(event).await.is_err() {
-                break;
-            }
+    async fn task(mut rx: tokio::sync::mpsc::Receiver<serde_json::Value>) {
+        while let Some(payload) = rx.recv().await {
+            log::info!("input: {payload}");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         }
-
-        if let Ok(Err(e)) = self_addr.send(app::signal::Stop).await {
-            log::warn!("{e:#}")
-        }
-
-        log::error!("actor '{}' crashed!", core::any::type_name::<Self>())
     }
 }
 impl actix::Actor for Mqtt {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_system_sync::<event::incoming_payload::Data>(ctx);
+        self.subscribe_system_sync::<input_controller::broadcast::InputData>(ctx);
 
-        self.task_handle = Some(tokio::task::spawn_local(Self::task(ctx.address())));
+        let (rx,) = self.task_resrc.take().unwrap();
+        actix::Arbiter::current().spawn(Self::task(rx));
     }
 }
 impl actix::Handler<app::signal::Stop> for Mqtt {
     type Result = app::signal::StopResult;
 
     fn handle(&mut self, _msg: app::signal::Stop, ctx: &mut Self::Context) -> Self::Result {
-        if let Some(task_handle) = &self.task_handle {
-            task_handle.abort()
-        }
-
         ctx.stop();
         Ok(())
     }
 }
+impl<T> actix::Handler<T> for Mqtt
+where
+    T: serde::Serialize + actix::Message<Result = ()> + Send + 'static,
+{
+    type Result = ();
 
-pub mod event {
-    use super::Mqtt;
+    fn handle(&mut self, msg: T, _ctx: &mut Self::Context) -> Self::Result {
+        let tx = self.task_tx.clone();
 
-    pub mod incoming_payload {
-        use super::*;
-
-        #[derive(Debug, actix::Message, Clone)]
-        #[rtype(result = "()")]
-        pub struct Data;
-
-        impl actix::Handler<Data> for Mqtt {
-            type Result = ();
-
-            fn handle(&mut self, _msg: Data, _ctx: &mut Self::Context) -> Self::Result {
-                // TODO: this is user manual ctrl (do whatever with it)
-                todo!()
+        actix::Arbiter::current().spawn(async move {
+            match serde_json::to_value(msg) {
+                Ok(value) => {
+                    let _ = tx.send(value).await;
+                }
+                Err(e) => {
+                    log::warn!(
+                        "failed to enqueue mqtt payload '{}', reason: {e}",
+                        core::any::type_name::<T>()
+                    )
+                }
             }
-        }
+        });
     }
 }

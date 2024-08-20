@@ -13,3 +13,5 @@ macros = { path = "./macros" }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 error-stack = "0.5.0"
+serde = { version = "1.0.208", features = ["derive"] }
+serde_json = "1.0.125"

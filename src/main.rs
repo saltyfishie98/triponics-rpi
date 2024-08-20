@@ -8,6 +8,11 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 #[actix::main]
 async fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        println!("Got panic, info: {}", info);
+        std::process::abort();
+    }));
+
     init_logging();
 
     App::new()
@@ -16,7 +21,7 @@ async fn main() {
         .with_actor(actor::OutputController::new())
         .with_actor(actor::InputController::new(
             actor::input_controller::Config {
-                update_interval: tokio::time::Duration::from_secs_f32(1.0 / 5.0),
+                update_interval: tokio::time::Duration::from_secs_f32(1.0),
             },
         ))
         .run()

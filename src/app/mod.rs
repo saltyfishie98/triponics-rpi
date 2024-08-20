@@ -28,6 +28,7 @@ impl App {
 
     pub async fn run(self) {
         tokio::signal::ctrl_c().await.unwrap();
+        // actix::Arbiter::current().stop();
         futures::future::join_all(
             self.actor_addr_vec
                 .iter()
