@@ -13,4 +13,4 @@ pub struct Terminate;
 #[error("actore stop error!")]
 pub struct StopError;
 
-pub type StopResult = Result<(), StopError>;
+pub type StopResult = error_stack::Result<(), StopError>;

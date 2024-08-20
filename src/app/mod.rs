@@ -1,6 +1,9 @@
 pub mod alarm;
 pub mod signal;
 
+#[allow(unused_imports)]
+use crate::log;
+
 pub struct App {
     actor_addr_vec: Vec<Box<dyn ActorProxy>>,
 }
@@ -15,7 +18,8 @@ impl App {
     where
         T: actix::Actor<Context = actix::Context<T>>
             + actix::Handler<signal::Stop>
-            + actix::Handler<signal::Terminate>,
+            + actix::Handler<signal::Terminate>
+            + std::fmt::Debug,
     {
         let Self { mut actor_addr_vec } = self;
         actor_addr_vec.push(Box::new(actor.start()));
@@ -24,9 +28,13 @@ impl App {
 
     pub async fn run(self) {
         tokio::signal::ctrl_c().await.unwrap();
-        for addr in self.actor_addr_vec.into_iter() {
-            addr.clean().await.unwrap();
-        }
+        futures::future::join_all(
+            self.actor_addr_vec
+                .iter()
+                .map(|addr| addr.clean())
+                .collect::<Vec<_>>(),
+        )
+        .await;
     }
 }
 
@@ -41,9 +49,15 @@ where
 {
     fn clean(&self) -> futures::future::BoxFuture<Result<(), actix::MailboxError>> {
         Box::pin(async {
-            if self.send(signal::Stop).await.is_err() {
-                return self.send(signal::Terminate).await;
+            if !self.connected() {
+                return Ok(());
             }
+
+            if self.send(signal::Stop).await.is_err() {
+                self.send(signal::Terminate).await.unwrap();
+            }
+
+            log::info!("cleaned actor '{}'", core::any::type_name::<T>());
             Ok(())
         })
     }

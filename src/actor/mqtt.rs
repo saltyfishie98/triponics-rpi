@@ -1,7 +1,7 @@
 use actix::{ActorContext, AsyncContext};
 use actix_broker::BrokerSubscribe;
 
-use crate::app;
+use crate::{app, log};
 
 #[derive(Debug, app::signal::Terminate)]
 pub struct Mqtt {
@@ -11,6 +11,23 @@ impl Mqtt {
     pub fn new() -> Self {
         Self { task_handle: None }
     }
+
+    async fn task(self_addr: actix::Addr<Self>) {
+        while self_addr.connected() {
+            let event = event::incoming_payload::Data;
+            log::trace!("emitted: {event:?}");
+
+            if self_addr.send(event).await.is_err() {
+                break;
+            }
+        }
+
+        if let Ok(Err(e)) = self_addr.send(app::signal::Stop).await {
+            log::warn!("{e:#}")
+        }
+
+        log::error!("actor '{}' crashed!", core::any::type_name::<Self>())
+    }
 }
 impl actix::Actor for Mqtt {
     type Context = actix::Context<Self>;
@@ -18,18 +35,7 @@ impl actix::Actor for Mqtt {
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_system_sync::<event::incoming_payload::Data>(ctx);
 
-        let self_addr = ctx.address();
-        let task_handle = tokio::task::spawn_local(async move {
-            loop {
-                let event = event::incoming_payload::Data;
-                println!("emitted: {event:?}");
-
-                if let Err(e) = self_addr.send(event).await {
-                    println!("{e}");
-                }
-            }
-        });
-        self.task_handle = Some(task_handle);
+        self.task_handle = Some(tokio::task::spawn_local(Self::task(ctx.address())));
     }
 }
 impl actix::Handler<app::signal::Stop> for Mqtt {
@@ -39,6 +45,7 @@ impl actix::Handler<app::signal::Stop> for Mqtt {
         if let Some(task_handle) = &self.task_handle {
             task_handle.abort()
         }
+
         ctx.stop();
         Ok(())
     }

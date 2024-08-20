@@ -3,6 +3,24 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug executable 'triponics-rpi'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=triponics-rpi",
+                    "--package=triponics-rpi"
+                ],
+                "filter": {
+                    "name": "triponics-rpi",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Remote Debug",
             "cargo": {
                 "args": [
