@@ -31,10 +31,18 @@
             "dependsOn": "rust: build release (rpi zero 2 w)",
             "group": "build",
             "type": "shell",
-            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/release/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+        },
+        //
+        // For debug
+        {
+            "label": "debug: killall",
+            "type": "shell",
+            "command": "ssh saltyfishie@169.254.0.100 killall lldb-server ${workspaceFolderBasename}; echo 0"
         },
         {
             "label": "debug: write",
+            "dependsOn": "debug: killall",
             "type": "shell",
             "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/debug/",
         },
@@ -43,7 +51,6 @@
             "dependsOn": "debug: write",
             "type": "shell",
             "command": "ssh saltyfishie@169.254.0.100 \"sh -c 'nohup lldb-server platform --server --listen *:17777' > /dev/null 2>&1 &\"",
-            "group": "build"
         }
     ]
 }
