@@ -15,20 +15,17 @@ impl actix::Actor for Mqtt {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.subscribe_system_sync::<event::Payload>(ctx);
+        self.subscribe_system_sync::<event::incoming_payload::Data>(ctx);
 
         let self_addr = ctx.address();
         let task_handle = tokio::task::spawn_local(async move {
-            let mut interval = 0;
             loop {
-                let event = event::Payload { interval };
+                let event = event::incoming_payload::Data;
                 println!("emitted: {event:?}");
 
                 if let Err(e) = self_addr.send(event).await {
                     println!("{e}");
                 }
-
-                interval += 1;
             }
         });
         self.task_handle = Some(task_handle);
@@ -58,27 +55,21 @@ impl actix::Handler<app::signal::TerminateSignal> for Mqtt {
 }
 
 pub mod event {
-    use actix_broker::BrokerIssue;
-
-    use crate::actor;
-
     use super::Mqtt;
 
-    #[derive(Debug, actix::Message, Clone)]
-    #[rtype(result = "()")]
-    pub struct Payload {
-        pub interval: u32,
-    }
+    pub mod incoming_payload {
+        use super::*;
 
-    impl actix::Handler<Payload> for Mqtt {
-        type Result = ();
+        #[derive(Debug, actix::Message, Clone)]
+        #[rtype(result = "()")]
+        pub struct Data;
 
-        fn handle(
-            &mut self,
-            Payload { interval }: Payload,
-            _ctx: &mut Self::Context,
-        ) -> Self::Result {
-            self.issue_system_async(actor::database::event::Insert { interval })
+        impl actix::Handler<Data> for Mqtt {
+            type Result = ();
+
+            fn handle(&mut self, msg: Data, _ctx: &mut Self::Context) -> Self::Result {
+                let Data = msg;
+            }
         }
     }
 }
