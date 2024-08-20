@@ -3,6 +3,7 @@ use actix_broker::BrokerSubscribe;
 
 use crate::app;
 
+#[derive(Debug, app::signal::Terminate)]
 pub struct Mqtt {
     task_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -31,26 +32,15 @@ impl actix::Actor for Mqtt {
         self.task_handle = Some(task_handle);
     }
 }
-impl actix::Handler<app::signal::StopSignal> for Mqtt {
+impl actix::Handler<app::signal::Stop> for Mqtt {
     type Result = app::signal::StopResult;
 
-    fn handle(&mut self, _msg: app::signal::StopSignal, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: app::signal::Stop, ctx: &mut Self::Context) -> Self::Result {
         if let Some(task_handle) = &self.task_handle {
             task_handle.abort()
         }
         ctx.stop();
         Ok(())
-    }
-}
-impl actix::Handler<app::signal::TerminateSignal> for Mqtt {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        _msg: app::signal::TerminateSignal,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        ctx.terminate();
     }
 }
 
@@ -67,8 +57,9 @@ pub mod event {
         impl actix::Handler<Data> for Mqtt {
             type Result = ();
 
-            fn handle(&mut self, msg: Data, _ctx: &mut Self::Context) -> Self::Result {
-                let Data = msg;
+            fn handle(&mut self, _msg: Data, _ctx: &mut Self::Context) -> Self::Result {
+                // TODO: this is user manual ctrl (do whatever with it)
+                todo!()
             }
         }
     }
