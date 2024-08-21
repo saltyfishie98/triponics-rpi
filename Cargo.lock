@@ -921,6 +921,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "actix-broker",
+ "anyhow",
  "error-stack",
  "futures",
  "macros",

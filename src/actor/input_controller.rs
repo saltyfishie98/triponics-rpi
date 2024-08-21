@@ -1,4 +1,4 @@
-use crate::app;
+use crate::{actor, app, App};
 
 #[allow(unused_imports)]
 use crate::log;
@@ -31,6 +31,13 @@ impl actix::Actor for InputController {
         let task = tokio::task::spawn_local(async move {
             let mut data = 0;
             loop {
+                if let Some(addr) = App::addr_of::<actor::Mqtt>() {
+                    if !addr.connected() {
+                        tokio::task::yield_now().await;
+                        continue;
+                    }
+                }
+
                 actix_broker::Broker::<actix_broker::SystemBroker>::issue_async(
                     broadcast::InputData { data },
                 );

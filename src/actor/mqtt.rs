@@ -44,6 +44,7 @@ impl Mqtt {
         }
     }
 }
+
 impl actix::Actor for Mqtt {
     type Context = actix::Context<Self>;
 
@@ -52,6 +53,7 @@ impl actix::Actor for Mqtt {
         self.task_handle = Some(tokio::task::spawn_local(Self::task(ctx.address())));
     }
 }
+
 impl actix::Handler<app::signal::Stop> for Mqtt {
     type Result = app::signal::StopResult;
 
@@ -64,24 +66,40 @@ impl actix::Handler<app::signal::Stop> for Mqtt {
         Ok(())
     }
 }
-impl<T> actix::Handler<T> for Mqtt
+
+impl actix::Handler<input_controller::broadcast::InputData> for Mqtt {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: input_controller::broadcast::InputData,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        ctx.notify(event::Publish("data/test/test", msg));
+    }
+}
+
+impl<T> actix::Handler<event::Publish<T>> for Mqtt
 where
-    T: serde::Serialize + actix::Message<Result = ()> + 'static,
+    T: serde::Serialize + actix::Message<Result = ()> + std::fmt::Debug + 'static,
 {
     type Result = ();
 
-    fn handle(&mut self, msg: T, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: event::Publish<T>, _ctx: &mut Self::Context) -> Self::Result {
+        panic!();
         let client = self.mqtt_client.clone();
         tokio::task::spawn_local(async move {
+            let event::Publish(topic, payload) = msg;
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
             let mut bytes: Vec<u8> = Vec::new();
-            serde_json::to_writer(&mut bytes, &msg).unwrap();
+            serde_json::to_writer(&mut bytes, &payload).unwrap();
+
+            log::info!("Mqtt: data -> {:?}", payload);
 
             if let Err(e) = client
-                .publish(paho_mqtt::Message::new(
-                    "data/test/test",
-                    bytes,
-                    paho_mqtt::QOS_1,
-                ))
+                .publish(paho_mqtt::Message::new(topic, bytes, paho_mqtt::QOS_1))
                 .await
             {
                 log::warn!("mqtt publish error, reason: {e}");
@@ -90,4 +108,16 @@ where
             }
         });
     }
+}
+
+pub mod event {
+    #[derive(Debug, actix::Message, Clone)]
+    #[rtype(result = "()")]
+    pub struct Publish<T>(pub &'static str, pub T)
+    where
+        T: serde::Serialize + actix::Message<Result = ()> + std::fmt::Debug + 'static;
+
+    pub struct Subscribe<T>(pub &'static str, pub T)
+    where
+        T: serde::Serialize + actix::Message<Result = ()> + std::fmt::Debug + 'static;
 }
