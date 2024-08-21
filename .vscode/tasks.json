@@ -3,41 +3,39 @@
     "tasks": [
         {
             "label": "rust: build debug (rpi zero 2 w)",
-            "type": "cargo",
-            "command": "build",
+            "type": "shell",
+            "command": "make",
             "args": [
-                "--target=aarch64-unknown-linux-gnu"
-            ],
-            "problemMatcher": [
-                "$rustc"
+                "build-debug"
             ],
             "group": "build",
         },
         {
             "label": "rust: build release (rpi zero 2 w)",
-            "type": "cargo",
-            "command": "build",
+            "type": "shell",
+            "command": "make",
             "args": [
-                "--release",
-                "--target=aarch64-unknown-linux-gnu"
-            ],
-            "problemMatcher": [
-                "$rustc"
+                "build-release"
             ],
             "group": "build",
         },
         {
-            "label": "rust: build & write rpi",
-            "dependsOn": "rust: build release (rpi zero 2 w)",
-            "group": "build",
+            "label": "rust: send release (rpi zero 2 w)",
             "type": "shell",
-            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/release/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+            "command": "make",
+            "args": [
+                "send-release"
+            ],
+            "group": "build",
         },
         {
-            "label": "rust: write rpi",
-            "group": "build",
+            "label": "rust: dist (rpi zero 2 w)",
             "type": "shell",
-            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/release/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+            "command": "make",
+            "args": [
+                "dist"
+            ],
+            "group": "build",
         },
         //
         // For debug
@@ -50,7 +48,10 @@
             "label": "debug: write",
             "dependsOn": "debug: killall",
             "type": "shell",
-            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/debug/",
+            "command": "make",
+            "args": [
+                "debug"
+            ],
         },
         {
             "label": "debug: setup",

@@ -22,18 +22,14 @@
             "type": "lldb",
             "request": "launch",
             "name": "Remote Debug",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--target=aarch64-unknown-linux-gnu"
-                ]
-            },
+            "program": "${workspaceFolder}/target/aarch64-unknown-linux-gnu/debug/${workspaceFolderBasename}",
             "preLaunchTask": "debug: setup",
             "initCommands": [
                 "platform select remote-linux",
                 "platform connect connect://169.254.0.100:17777",
                 "settings set target.inherit-env false"
             ],
+            "postDebugTask": "debug: killall",
             "env": {
                 "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games"
             }
