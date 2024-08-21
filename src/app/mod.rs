@@ -18,8 +18,7 @@ impl App {
     where
         T: actix::Actor<Context = actix::Context<T>>
             + actix::Handler<signal::Stop>
-            + actix::Handler<signal::Terminate>
-            + std::fmt::Debug,
+            + actix::Handler<signal::Terminate>,
     {
         let Self { mut actor_addr_vec } = self;
         actor_addr_vec.push(Box::new(actor.start()));

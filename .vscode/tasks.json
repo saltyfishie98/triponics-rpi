@@ -27,8 +27,14 @@
             "group": "build",
         },
         {
-            "label": "rust: write rpi",
+            "label": "rust: build & write rpi",
             "dependsOn": "rust: build release (rpi zero 2 w)",
+            "group": "build",
+            "type": "shell",
+            "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/release/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",
+        },
+        {
+            "label": "rust: write rpi",
             "group": "build",
             "type": "shell",
             "command": "rsync -avz ${workspaceFolder}/target/aarch64-unknown-linux-gnu/release/${workspaceFolderBasename} saltyfishie@169.254.0.100:/home/saltyfishie/Programs/",

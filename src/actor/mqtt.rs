@@ -1,28 +1,46 @@
-use actix::ActorContext;
+use actix::{ActorContext, AsyncContext};
 use actix_broker::BrokerSubscribe;
 
-use crate::{app, log};
+use crate::app;
+#[allow(unused_imports)]
+use crate::log;
 
 use super::input_controller;
 
-#[derive(Debug, app::signal::Terminate)]
+#[derive(app::signal::Terminate)]
 pub struct Mqtt {
-    task_resrc: Option<(tokio::sync::mpsc::Receiver<serde_json::Value>,)>,
-    task_tx: tokio::sync::mpsc::Sender<serde_json::Value>,
+    mqtt_client: paho_mqtt::AsyncClient,
+    task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 impl Mqtt {
-    pub fn new() -> Self {
-        let (task_tx, rx) = tokio::sync::mpsc::channel(10);
+    pub async fn new() -> Self {
+        let mqtt_client = tokio::task::spawn_local(async {
+            let client = paho_mqtt::AsyncClient::new("test.mosquitto.org").unwrap_or_else(|err| {
+                println!("Error creating the client: {}", err);
+                std::process::exit(1);
+            });
+
+            client.connect(None);
+
+            while !client.is_connected() {
+                log::info!("waiting for mqtt client to connect to broker...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+
+            client
+        })
+        .await
+        .unwrap();
+
         Self {
-            task_resrc: Some((rx,)),
-            task_tx,
+            task_handle: None,
+            mqtt_client,
         }
     }
 
-    async fn task(mut rx: tokio::sync::mpsc::Receiver<serde_json::Value>) {
-        while let Some(payload) = rx.recv().await {
-            log::info!("input: {payload}");
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    async fn task(_self_addr: actix::Addr<Self>) {
+        loop {
+            tokio::task::yield_now().await;
         }
     }
 }
@@ -31,39 +49,44 @@ impl actix::Actor for Mqtt {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.subscribe_system_sync::<input_controller::broadcast::InputData>(ctx);
-
-        let (rx,) = self.task_resrc.take().unwrap();
-        actix::Arbiter::current().spawn(Self::task(rx));
+        self.task_handle = Some(tokio::task::spawn_local(Self::task(ctx.address())));
     }
 }
 impl actix::Handler<app::signal::Stop> for Mqtt {
     type Result = app::signal::StopResult;
 
     fn handle(&mut self, _msg: app::signal::Stop, ctx: &mut Self::Context) -> Self::Result {
+        if let Some(task_handle) = &self.task_handle {
+            task_handle.abort()
+        }
+
         ctx.stop();
         Ok(())
     }
 }
 impl<T> actix::Handler<T> for Mqtt
 where
-    T: serde::Serialize + actix::Message<Result = ()> + Send + 'static,
+    T: serde::Serialize + actix::Message<Result = ()> + 'static,
 {
     type Result = ();
 
     fn handle(&mut self, msg: T, _ctx: &mut Self::Context) -> Self::Result {
-        let tx = self.task_tx.clone();
+        let client = self.mqtt_client.clone();
+        tokio::task::spawn_local(async move {
+            let mut bytes: Vec<u8> = Vec::new();
+            serde_json::to_writer(&mut bytes, &msg).unwrap();
 
-        actix::Arbiter::current().spawn(async move {
-            match serde_json::to_value(msg) {
-                Ok(value) => {
-                    let _ = tx.send(value).await;
-                }
-                Err(e) => {
-                    log::warn!(
-                        "failed to enqueue mqtt payload '{}', reason: {e}",
-                        core::any::type_name::<T>()
-                    )
-                }
+            if let Err(e) = client
+                .publish(paho_mqtt::Message::new(
+                    "data/test/test",
+                    bytes,
+                    paho_mqtt::QOS_1,
+                ))
+                .await
+            {
+                log::warn!("mqtt publish error, reason: {e}");
+            } else {
+                log::info!("new mqtt published!");
             }
         });
     }
