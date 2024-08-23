@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+macros = { path = "./macros" }
+
 actix = "0.13.5"
 actix-broker = "0.4.3"
 futures = "0.3.30"
 thiserror = "1.0.63"
-tokio = { version = "1.39.3", features = ["time", "signal"] }
-macros = { path = "./macros" }
+tokio = { version = "1.39.3", features = ["time", "signal", "macros", "rt-multi-thread"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
@@ -22,3 +23,7 @@ serde_json = "1.0.125"
 paho-mqtt = { version = "0.12.5", features = ["vendored-ssl"] }
 time = { version = "0.3.36", features = ["macros"] }
 anyhow = "1.0.86"
+bevy_internal = "0.14.1"
+bevy_app = "0.14.1"
+bevy_ecs = "0.14.1"
+bevy-tokio-tasks = "0.14.0"

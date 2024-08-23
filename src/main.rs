@@ -1,59 +1,68 @@
-mod actor;
+mod helper;
+mod mqtt;
 
-mod app;
-use app::*;
+use std::time::Duration;
 
+use bevy_app::{prelude::*, ScheduleRunnerPlugin};
+use bevy_ecs::{
+    event::{Event, EventReader},
+    system::ResMut,
+};
+use bevy_internal::MinimalPlugins;
+use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
+use futures::StreamExt;
+#[allow(unused_imports)]
 use tracing as log;
-use tracing_subscriber::{layer::SubscriberExt, Layer};
 
-#[actix::main]
-async fn main() -> anyhow::Result<()> {
-    // std::panic::set_hook(Box::new(|info| {
-    //     println!("Got panic, info: {}", info);
-    //     std::process::abort();
-    // }));
+fn main() -> anyhow::Result<()> {
+    helper::init_logging();
 
-    init_logging();
-
-    App::builder()
-        .with_actor(actor::Mqtt::new().await)?
-        .with_actor(actor::CtrlLogic::new())?
-        .with_actor(actor::OutputController::new())?
-        .with_actor(actor::InputController::new(
-            actor::input_controller::Config {
-                update_interval: tokio::time::Duration::from_secs_f32(1.0),
-            },
-        ))?
-        .build()
-        .run()
-        .await;
+    App::new()
+        .add_plugins((
+            MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f32(
+                1.0 / 60.0,
+            ))),
+            TokioTasksPlugin::default(),
+        ))
+        .add_plugins((mqtt::MqttPlugin {
+            subscriptions: Some(&[("data/#", mqtt::Qos::_0)]),
+            ..Default::default()
+        },))
+        .add_event::<RestartEvent>()
+        .add_systems(Startup, test_task)
+        .add_systems(Startup, exit_task)
+        .run();
 
     log::info!("bye!");
+
     Ok(())
 }
 
-fn init_logging() {
-    let subscriber = tracing_subscriber::Registry::default().with(
-        tracing_subscriber::EnvFilter::builder()
-            .with_default_directive(tracing::level_filters::LevelFilter::DEBUG.into())
-            .from_env_lossy(),
-    );
+#[derive(Event)]
+struct RestartEvent;
 
-    let fmt = {
-        let time_offset = time::UtcOffset::current_local_offset().unwrap();
+fn test_task(rt: ResMut<TokioTasksRuntime>) {
+    rt.spawn_background_task(|mut ctx| async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            ctx.run_on_main_thread(move |ctx| ctx.world.send_event(RestartEvent))
+                .await;
+        }
+    });
+}
 
-        tracing_subscriber::fmt::Layer::default()
-            .with_target(false)
-            .with_file(true)
-            .with_line_number(true)
-            .with_timer(tracing_subscriber::fmt::time::OffsetTime::new(
-                time_offset,
-                time::macros::format_description!(
-                    "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
-                ),
-            ))
-            .with_filter(tracing_subscriber::filter::LevelFilter::TRACE)
-    };
+fn exit_task(rt: ResMut<TokioTasksRuntime>) {
+    rt.spawn_background_task(|mut ctx| async move {
+        let _ = tokio::signal::ctrl_c().await;
+        ctx.run_on_main_thread(move |ctx| {
+            ctx.world.send_event(AppExit::Success);
+        })
+        .await;
+    });
+}
 
-    tracing::subscriber::set_global_default(subscriber.with(fmt)).unwrap();
+fn restart(mut ev_reader: EventReader<RestartEvent>) {
+    while let Some(_) = ev_reader.read().next() {
+        log::info!("restart");
+    }
 }
