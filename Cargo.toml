@@ -27,3 +27,4 @@ bevy_internal = "0.14.1"
 bevy_app = "0.14.1"
 bevy_ecs = "0.14.1"
 bevy-tokio-tasks = "0.14.0"
+postcard = { version = "1.0.10", default-features = false, features = ["use-std"] }

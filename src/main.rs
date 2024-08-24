@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
             initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
             client_create_options: mqtt::MqttCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
-                client_id: Some("triponics-test"),
+                client_id: "triponics-test",
                 ..Default::default()
             },
         },))
@@ -62,9 +62,17 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
+    // if counter.0 % 200 != 0 {
+    //     return;
+    // }
+
+    let payload = format!("hello {}", counter.0);
+
+    // log::info!("{payload}");
+
     cmd.spawn(mqtt::component::PublishMsg::new(
         "saltyfishie",
-        format!("hello {}", counter.0),
+        payload,
         mqtt::Qos::_1,
     ));
 

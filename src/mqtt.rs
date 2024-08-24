@@ -1,4 +1,9 @@
-use std::time::Duration;
+use std::{
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
@@ -30,6 +35,10 @@ impl Plugin for MqttPlugin {
         app.insert_resource(client_create_options.clone())
             .insert_resource(Subscriptions(subscriptions.to_vec()))
             .insert_resource(MqttMessageSender(mqtt_message_tx))
+            .insert_resource(MqttFileManager::new(
+                client_create_options.client_id,
+                client_create_options.offline_storage_path.as_path(),
+            ))
             .add_event::<event::RestartClient>()
             .add_event_channel(receiver)
             .add_systems(Startup, system::setup_offline_path)
@@ -37,8 +46,8 @@ impl Plugin for MqttPlugin {
                 Update,
                 (
                     system::restart_client,
-                    system::read_offline_cache,
-                    system::publish_message.after(system::read_offline_cache),
+                    system::publish_offline_cache,
+                    system::publish_message.after(system::publish_offline_cache),
                 ),
             )
             .world_mut()
@@ -47,6 +56,9 @@ impl Plugin for MqttPlugin {
 }
 
 mod system {
+    use bevy_ecs::event::EventWriter;
+
+    use super::component;
     use super::*;
 
     pub fn setup_offline_path() {}
@@ -57,14 +69,13 @@ mod system {
         mqtt_msg_tx: Res<MqttMessageSender>,
         mut ev: EventReader<event::RestartClient>,
     ) {
-        static mut RESTARTING: bool = false;
-
         if ev.is_empty() {
             return;
         } else {
             ev.clear();
         }
 
+        static mut RESTARTING: bool = false;
         unsafe {
             if RESTARTING {
                 log::info!("mqtt client is already restarting");
@@ -177,29 +188,56 @@ mod system {
         rt: Res<TokioTasksRuntime>,
         mut query: Query<&mut component::PublishMsg>,
     ) {
+        let process_msg = |msg: component::PublishMsgInner| {
+            rt.spawn_background_task(|mut ctx| async move {
+                ctx.run_on_main_thread(move |ctx| {
+                    let offline_data = match ctx.world.get_resource::<MqttClient>() {
+                        Some(client) => {
+                            if client.inner_client.is_connected() {
+                                client.inner_client.publish(msg.into());
+                                None
+                            } else {
+                                ctx.world.send_event(event::RestartClient);
+                                Some(msg)
+                            }
+                        }
+                        None => Some(msg),
+                    };
+
+                    if let Some(to_file) = offline_data {
+                        let mut cache = ctx.world.get_resource_mut::<MqttFileManager>().unwrap();
+                        log::info!("cached msg: {:?}", to_file);
+                        cache.add(&to_file).unwrap();
+                    }
+                })
+                .await;
+            });
+        };
+
         query
             .iter_mut()
             .flat_map(|mut data| data.msg.take())
-            .for_each(|msg| {
-                rt.spawn_background_task(|mut ctx| async move {
-                    ctx.run_on_main_thread(move |ctx| {
-                        if let Some(client) = ctx.world.get_resource::<MqttClient>() {
-                            client.inner_client.publish(msg.into());
-                        } else {
-                            log::warn!("can't publish mqtt client not connected!");
-                        }
-                    })
-                    .await;
-                });
-            });
+            .for_each(process_msg);
     }
 
-    pub fn read_offline_cache(query: Query<&component::PublishMsg>) {
-        if !query.is_empty() {
+    pub fn publish_offline_cache(
+        client: Option<Res<MqttClient>>,
+        mut restarter: EventWriter<event::RestartClient>,
+    ) {
+        if client.is_none() {
+            log::trace!("publish cache -> blocked by unavailable mqtt client");
             return;
         }
 
-        todo!();
+        let client = client.unwrap();
+
+        if !client.inner_client.is_connected() {
+            log::trace!("publish cache -> blocked by mqtt client not connected");
+            restarter.send(event::RestartClient);
+            return;
+        }
+
+        todo!()
     }
 }
 
@@ -208,11 +246,20 @@ pub mod component {
 
     use super::Qos;
 
-    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    #[derive(serde::Serialize, serde::Deserialize)]
     pub(super) struct PublishMsgInner {
         topic: String,
         payload: Vec<u8>,
         qos: Qos,
+    }
+    impl std::fmt::Debug for PublishMsgInner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("PublishMsgInner")
+                .field("topic", &self.topic)
+                .field("payload", &std::str::from_utf8(&self.payload).unwrap())
+                .field("qos", &self.qos)
+                .finish()
+        }
     }
     impl From<PublishMsgInner> for paho_mqtt::Message {
         fn from(value: PublishMsgInner) -> Self {
@@ -287,7 +334,8 @@ impl From<&PersistenceType> for paho_mqtt::PersistenceType {
 #[derive(Clone, Resource)]
 pub struct MqttCreateOptions {
     pub server_uri: &'static str,
-    pub client_id: Option<&'static str>,
+    pub client_id: &'static str,
+    pub offline_storage_path: PathBuf,
     pub request_channel_capacity: usize,
     pub max_buffered_messages: Option<i32>,
     pub persistence_type: Option<PersistenceType>,
@@ -303,6 +351,7 @@ impl Default for MqttCreateOptions {
             server_uri: "mqtt://test.mosquitto.org",
             client_id: Default::default(),
             request_channel_capacity: 10,
+            offline_storage_path: std::env::current_dir().unwrap(),
 
             max_buffered_messages: Default::default(),
             persistence_type: Default::default(),
@@ -335,15 +384,12 @@ impl From<&MqttCreateOptions> for paho_mqtt::CreateOptions {
             restore_messages,
             persist_qos0,
             request_channel_capacity: _,
+            offline_storage_path: _,
         } = value;
 
-        let builder = paho_mqtt::CreateOptionsBuilder::new().server_uri(*server_uri);
-
-        let builder = if let Some(client_id) = *client_id {
-            builder.client_id(client_id)
-        } else {
-            builder
-        };
+        let builder = paho_mqtt::CreateOptionsBuilder::new()
+            .server_uri(*server_uri)
+            .client_id(*client_id);
 
         let builder = if let Some(n) = *max_buffered_messages {
             builder.max_buffered_messages(n)
@@ -402,3 +448,34 @@ struct MqttMessageSender(std::sync::mpsc::Sender<event::MqttMessage>);
 
 #[derive(Debug, Resource)]
 struct Subscriptions(Vec<(&'static str, Qos)>);
+
+#[derive(Debug, Resource)]
+struct MqttFileManager {
+    pub file: File,
+}
+impl MqttFileManager {
+    fn new(client_id: &'static str, path: &Path) -> Self {
+        let mut path = PathBuf::from(path);
+        path.push("cache");
+        path.push(format!("{client_id}.mqtt"));
+
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        Self {
+            file: std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .read(true)
+                .open(path)
+                .unwrap(),
+        }
+    }
+
+    fn add(&mut self, msg: &component::PublishMsgInner) -> std::io::Result<()> {
+        let mut to_file = postcard::to_stdvec(msg).unwrap();
+        to_file.push(b'\n');
+        self.file.write_all(&to_file)
+    }
+
+    fn read(&mut self) -> Vec<component::PublishMsgInner> {}
+}
