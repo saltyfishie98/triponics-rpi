@@ -57,10 +57,21 @@ mod system {
         mqtt_msg_tx: Res<MqttMessageSender>,
         mut ev: EventReader<event::RestartClient>,
     ) {
+        static mut RESTARTING: bool = false;
+
         if ev.is_empty() {
             return;
         } else {
             ev.clear();
+        }
+
+        unsafe {
+            if RESTARTING {
+                log::info!("mqtt client is already restarting");
+                return;
+            }
+
+            RESTARTING = true;
         }
 
         log::info!("restarting mqtt client!");
@@ -155,6 +166,10 @@ mod system {
             }
 
             log::info!("mqtt client restarted!");
+
+            unsafe {
+                RESTARTING = false;
+            }
         });
     }
 
