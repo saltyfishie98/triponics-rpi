@@ -1,13 +1,149 @@
+use std::time::Duration;
+
 use bevy_app::{Plugin, Update};
 use bevy_ecs::{
     event::{Event, EventReader},
     system::{Res, Resource},
 };
 use bevy_tokio_tasks::TokioTasksRuntime;
-
 use futures::StreamExt;
+
 #[allow(unused_imports)]
 use tracing as log;
+
+use crate::helper::AppExtensions;
+
+#[derive(Debug, Default)]
+pub struct MqttPlugin {
+    pub client_create_options: MqttCreateOptions,
+    pub subscriptions: &'static [(&'static str, Qos)],
+}
+impl Plugin for MqttPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        let (mqtt_message_tx, receiver) = std::sync::mpsc::channel::<MqttMessage>();
+
+        let Self {
+            client_create_options,
+            subscriptions,
+        } = self;
+
+        app.insert_resource(client_create_options.clone())
+            .insert_resource(Subscriptions(subscriptions.to_vec()))
+            .insert_resource(MqttMessageSender(mqtt_message_tx))
+            .add_event::<RestartClient>()
+            .add_event_channel(receiver)
+            .add_systems(Update, restart_client)
+            .world_mut()
+            .send_event(RestartClient);
+    }
+}
+
+fn restart_client(
+    rt: Res<TokioTasksRuntime>,
+    client_create_options: Res<MqttCreateOptions>,
+    mqtt_msg_tx: Res<MqttMessageSender>,
+    mut ev: EventReader<RestartClient>,
+) {
+    if ev.is_empty() {
+        return;
+    } else {
+        ev.clear();
+    }
+
+    log::info!("restarting mqtt client!");
+
+    let client_create_options = client_create_options.clone();
+    let (start_fence_tx, start_fence_rx) = tokio::sync::oneshot::channel::<()>();
+    let mqtt_msg_tx = mqtt_msg_tx.0.clone();
+
+    rt.spawn_background_task(|mut ctx| async move {
+        async fn mqtt_recv_task(
+            mqtt_msg_tx: std::sync::mpsc::Sender<MqttMessage>,
+            start_fence_rx: tokio::sync::oneshot::Receiver<()>,
+            mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
+        ) {
+            let _ = start_fence_rx.await;
+
+            while let Some(Some(msg)) = stream.next().await {
+                log::trace!("polled mqtt msg -> {msg}");
+                if let Err(e) = mqtt_msg_tx.send(MqttMessage(msg)) {
+                    log::warn!("{e}");
+                }
+            }
+        }
+
+        log::debug!("client create options:\n{:#?}", client_create_options);
+
+        let mut inner_client =
+            paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::from(&client_create_options))
+                .unwrap_or_else(|err| {
+                    println!("Error creating the client: {}", err);
+                    std::process::exit(1);
+                });
+
+        let conn_opts =
+            paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5)
+                .clean_start(false)
+                .properties(
+                    paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
+                )
+                .finalize();
+
+        match inner_client.connect(conn_opts).await {
+            Err(e) => {
+                log::warn!("{e}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                ctx.run_on_main_thread(move |ctx| ctx.world.send_event(RestartClient))
+                    .await;
+            }
+            Ok(_) => {
+                let recv_task = tokio::spawn(mqtt_recv_task(
+                    mqtt_msg_tx,
+                    start_fence_rx,
+                    inner_client.get_stream(client_create_options.stream_buffer_size),
+                ));
+
+                let client = MqttClient {
+                    inner_client,
+                    recv_task,
+                };
+
+                let (topics, qos_s) = ctx
+                    .run_on_main_thread(move |ctx| {
+                        let world = ctx.world;
+                        if let Some(current_client) = world.remove_resource::<MqttClient>() {
+                            current_client.recv_task.abort();
+                        }
+
+                        let Subscriptions(subs) = world.get_resource::<Subscriptions>().unwrap();
+
+                        subs.iter().fold(
+                            (Vec::new(), Vec::new()),
+                            |(mut topics, mut qos_s), (topic, qos)| {
+                                topics.push(*topic);
+                                qos_s.push(*qos as i32);
+                                (topics, qos_s)
+                            },
+                        )
+                    })
+                    .await;
+
+                log::debug!("subscribing to topic: {:?}", topics);
+                if let Err(e) = client.inner_client.subscribe_many(&topics, &qos_s).await {
+                    log::warn!("error on restart subscription, reason: {}", e);
+                }
+                let _ = start_fence_tx.send(());
+
+                ctx.run_on_main_thread(move |ctx| {
+                    ctx.world.insert_resource(client);
+                })
+                .await;
+            }
+        }
+
+        log::info!("mqtt client restarted!");
+    });
+}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(i32)]
@@ -38,16 +174,16 @@ impl From<&PersistenceType> for paho_mqtt::PersistenceType {
 
 #[derive(Debug, Clone, Resource)]
 pub struct MqttCreateOptions {
-    server_uri: &'static str,
-    client_id: Option<&'static str>,
-    stream_buffer_size: usize,
-    max_buffered_messages: Option<i32>,
-    persistence_type: Option<PersistenceType>,
-    send_while_disconnected: Option<bool>,
-    allow_disconnected_send_at_anytime: Option<bool>,
-    delete_oldest_messages: Option<bool>,
-    restore_messages: Option<bool>,
-    persist_qos0: Option<bool>,
+    pub server_uri: &'static str,
+    pub client_id: Option<&'static str>,
+    pub stream_buffer_size: usize,
+    pub max_buffered_messages: Option<i32>,
+    pub persistence_type: Option<PersistenceType>,
+    pub send_while_disconnected: Option<bool>,
+    pub allow_disconnected_send_at_anytime: Option<bool>,
+    pub delete_oldest_messages: Option<bool>,
+    pub restore_messages: Option<bool>,
+    pub persist_qos0: Option<bool>,
 }
 impl Default for MqttCreateOptions {
     fn default() -> Self {
@@ -154,115 +290,8 @@ pub struct MqttClient {
 #[derive(Debug, Event)]
 pub struct RestartClient;
 
-#[derive(Debug, Default)]
-pub struct MqttPlugin {
-    pub client_create_options: MqttCreateOptions,
-    pub subscriptions: Option<&'static [(&'static str, Qos)]>,
-}
-impl Plugin for MqttPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        let Self {
-            client_create_options,
-            subscriptions,
-        } = self;
+#[derive(Debug, Event)]
+pub struct MqttMessage(pub paho_mqtt::Message);
 
-        let subs = if let Some(subs) = *subscriptions {
-            subs.to_vec()
-        } else {
-            Vec::new()
-        };
-
-        app.add_event::<RestartClient>()
-            .insert_resource(client_create_options.clone())
-            .insert_resource(Subscriptions(subs))
-            .add_systems(Update, restart_client)
-            .world_mut()
-            .send_event(RestartClient);
-    }
-}
-
-fn restart_client(
-    rt: Res<TokioTasksRuntime>,
-    mut ev: EventReader<RestartClient>,
-    client_create_options: Res<MqttCreateOptions>,
-) {
-    if ev.is_empty() {
-        return;
-    } else {
-        ev.clear();
-    }
-
-    log::info!("restarting mqtt client!");
-    let client_create_options = client_create_options.clone();
-
-    rt.spawn_background_task(|mut ctx| async move {
-        let client = {
-            let mut inner_client =
-                paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::from(&client_create_options))
-                    .unwrap_or_else(|err| {
-                        println!("Error creating the client: {}", err);
-                        std::process::exit(1);
-                    });
-
-            // let mut inner_client = paho_mqtt::AsyncClient::new(
-            //     paho_mqtt::CreateOptionsBuilder::new()
-            //         .server_uri("mqtt://test.mosquitto.org")
-            //         .client_id("rust_async_sub_v5")
-            //         .finalize(),
-            // )
-            // .unwrap_or_else(|err| {
-            //     println!("Error creating the client: {}", err);
-            //     std::process::exit(1);
-            // });
-
-            let conn_opts = paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(
-                paho_mqtt::MQTT_VERSION_5,
-            )
-            .clean_start(false)
-            .properties(
-                paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
-            )
-            .finalize();
-
-            let stream = inner_client.get_stream(25);
-            inner_client.connect(conn_opts);
-            let recv_task = tokio::task::spawn(mqtt_recv_task(stream));
-
-            MqttClient {
-                inner_client,
-                recv_task,
-            }
-        };
-
-        ctx.run_on_main_thread(move |ctx| {
-            let world = ctx.world;
-            world.remove_resource::<MqttClient>();
-
-            let Subscriptions(subs) = world.get_resource::<Subscriptions>().unwrap();
-
-            let (topics, qos_s) = subs.iter().fold(
-                (Vec::new(), Vec::new()),
-                |(mut topics, mut qos_s), (topic, qos)| {
-                    topics.push(*topic);
-                    qos_s.push(*qos as i32);
-                    (topics, qos_s)
-                },
-            );
-
-            log::debug!("subscribing to topic: {:?}", topics);
-            client.inner_client.subscribe_many(&topics, &qos_s);
-
-            world.insert_resource(client);
-        })
-        .await;
-
-        log::info!("mqtt client restarted!");
-    });
-}
-
-async fn mqtt_recv_task(mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>) {
-    log::trace!("polling mqtt stream");
-    while let Some(Some(msg)) = stream.next().await {
-        log::info!("{}", msg);
-    }
-}
+#[derive(Debug, Resource)]
+struct MqttMessageSender(std::sync::mpsc::Sender<MqttMessage>);
