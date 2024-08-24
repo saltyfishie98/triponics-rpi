@@ -29,10 +29,11 @@ fn main() -> anyhow::Result<()> {
             TokioTasksPlugin::default(),
         ))
         .add_plugins((mqtt::MqttPlugin {
-            initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
+            // initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
+            initial_subscriptions: &[],
             client_create_options: mqtt::MqttCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
-                client_id: "triponics-test",
+                client_id: "triponics-test-1",
                 ..Default::default()
             },
         },))
@@ -62,9 +63,9 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    // if counter.0 % 200 != 0 {
-    //     return;
-    // }
+    if counter.0 > 10 {
+        return;
+    }
 
     let payload = format!("hello {}", counter.0);
 

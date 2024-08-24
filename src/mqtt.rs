@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::Write,
+    io::{BufRead, Seek, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -35,7 +35,7 @@ impl Plugin for MqttPlugin {
         app.insert_resource(client_create_options.clone())
             .insert_resource(Subscriptions(subscriptions.to_vec()))
             .insert_resource(MqttMessageSender(mqtt_message_tx))
-            .insert_resource(MqttFileManager::new(
+            .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id,
                 client_create_options.offline_storage_path.as_path(),
             ))
@@ -47,7 +47,7 @@ impl Plugin for MqttPlugin {
                 (
                     system::restart_client,
                     system::publish_offline_cache,
-                    system::publish_message.after(system::publish_offline_cache),
+                    system::publish_message,
                 ),
             )
             .world_mut()
@@ -57,6 +57,7 @@ impl Plugin for MqttPlugin {
 
 mod system {
     use bevy_ecs::event::EventWriter;
+    use bevy_ecs::system::{Commands, ResMut};
 
     use super::component;
     use super::*;
@@ -163,10 +164,13 @@ mod system {
                         })
                         .await;
 
-                    log::debug!("subscribing to topic: {:?}", topics);
-                    if let Err(e) = client.inner_client.subscribe_many(&topics, &qos_s).await {
-                        log::warn!("error on restart subscription, reason: {}", e);
+                    if !topics.is_empty() {
+                        log::debug!("subscribing to topic: {:?}", topics);
+                        if let Err(e) = client.inner_client.subscribe_many(&topics, &qos_s).await {
+                            log::warn!("error on restart subscription, reason: {}", e);
+                        }
                     }
+
                     let _ = start_fence_tx.send(());
 
                     ctx.run_on_main_thread(move |ctx| {
@@ -205,7 +209,7 @@ mod system {
                     };
 
                     if let Some(to_file) = offline_data {
-                        let mut cache = ctx.world.get_resource_mut::<MqttFileManager>().unwrap();
+                        let mut cache = ctx.world.get_resource_mut::<MqttCacheManager>().unwrap();
                         log::info!("cached msg: {:?}", to_file);
                         cache.add(&to_file).unwrap();
                     }
@@ -221,7 +225,9 @@ mod system {
     }
 
     pub fn publish_offline_cache(
-        client: Option<Res<MqttClient>>,
+        mut cmd: Commands,
+        mut cache: ResMut<MqttCacheManager>,
+        client: Option<ResMut<MqttClient>>,
         mut restarter: EventWriter<event::RestartClient>,
     ) {
         if client.is_none() {
@@ -237,7 +243,10 @@ mod system {
             return;
         }
 
-        todo!()
+        cache.read().unwrap().into_iter().for_each(|msg| {
+            log::info!("queued cached msg -> {:?}", msg);
+            cmd.spawn(component::PublishMsg::from(msg));
+        });
     }
 }
 
@@ -276,7 +285,6 @@ pub mod component {
     pub struct PublishMsg {
         pub(super) msg: Option<PublishMsgInner>,
     }
-
     impl PublishMsg {
         pub fn new(topic: impl Into<String>, payload: impl Into<Vec<u8>>, qos: Qos) -> Self {
             Self {
@@ -286,6 +294,11 @@ pub mod component {
                     qos,
                 }),
             }
+        }
+    }
+    impl From<PublishMsgInner> for PublishMsg {
+        fn from(msg: PublishMsgInner) -> Self {
+            Self { msg: Some(msg) }
         }
     }
 }
@@ -450,10 +463,10 @@ struct MqttMessageSender(std::sync::mpsc::Sender<event::MqttMessage>);
 struct Subscriptions(Vec<(&'static str, Qos)>);
 
 #[derive(Debug, Resource)]
-struct MqttFileManager {
+struct MqttCacheManager {
     pub file: File,
 }
-impl MqttFileManager {
+impl MqttCacheManager {
     fn new(client_id: &'static str, path: &Path) -> Self {
         let mut path = PathBuf::from(path);
         path.push("cache");
@@ -472,10 +485,10 @@ impl MqttFileManager {
     }
 
     fn add(&mut self, msg: &component::PublishMsgInner) -> std::io::Result<()> {
-        let mut to_file = postcard::to_stdvec(msg).unwrap();
-        to_file.push(b'\n');
-        self.file.write_all(&to_file)
+        todo!()
     }
 
-    fn read(&mut self) -> Vec<component::PublishMsgInner> {}
+    fn read(&mut self) -> std::io::Result<Vec<component::PublishMsgInner>> {
+        todo!()
+    }
 }
