@@ -1,0 +1,1 @@
+INSERT INTO cache (time, data) VALUES (?,?) 

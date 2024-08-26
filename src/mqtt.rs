@@ -1,18 +1,17 @@
 use std::{
-    fs::File,
-    io::{BufRead, Seek, Write},
     path::{Path, PathBuf},
+    sync::OnceLock,
     time::Duration,
 };
 
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::EventReader,
-    schedule::IntoSystemConfigs,
     system::{Query, Res, Resource},
 };
 use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
+use tokio::sync::Mutex;
 
 use crate::helper::AppExtensions;
 #[allow(unused_imports)]
@@ -55,8 +54,53 @@ impl Plugin for MqttPlugin {
     }
 }
 
+#[derive(Debug, Resource)]
+struct MqttCacheManager {
+    connection: &'static Mutex<rusqlite::Connection>,
+}
+impl MqttCacheManager {
+    fn new(client_id: &'static str, path: &Path) -> Self {
+        let mut path = PathBuf::from(path);
+        path.push("cache");
+        path.push(format!("{client_id}.db3"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute(include_str!("sql/create_table.sql"), ())
+            .unwrap();
+
+        static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
+        let connection = DB_CONNECTION.get_or_init(|| Mutex::new(conn));
+
+        Self { connection }
+    }
+
+    async fn add_query(
+        conn: &'static Mutex<rusqlite::Connection>,
+        msg: &component::PublishMsg,
+    ) -> anyhow::Result<()> {
+        let conn = conn.lock().await;
+
+        Ok(conn
+            .execute(
+                include_str!("sql/add_data.sql"),
+                (
+                    time::OffsetDateTime::now_utc().unix_timestamp(),
+                    postcard::to_allocvec(msg)?,
+                ),
+            )
+            .map(|_| ())?)
+    }
+
+    fn read(&mut self) -> std::io::Result<Vec<component::PublishMsg>> {
+        todo!()
+    }
+}
+
 mod system {
+    use bevy_ecs::entity::Entity;
     use bevy_ecs::event::EventWriter;
+    use bevy_ecs::query::With;
     use bevy_ecs::system::{Commands, ResMut};
 
     use super::component;
@@ -189,39 +233,62 @@ mod system {
     }
 
     pub fn publish_message(
-        rt: Res<TokioTasksRuntime>,
+        mut cmd: Commands,
         mut query: Query<&mut component::PublishMsg>,
+        rt: Res<TokioTasksRuntime>,
+        client: Option<Res<MqttClient>>,
+        cache_manager: Res<MqttCacheManager>,
+        entt: Query<Entity, With<component::PublishMsg>>,
     ) {
-        let process_msg = |msg: component::PublishMsgInner| {
-            rt.spawn_background_task(|mut ctx| async move {
-                ctx.run_on_main_thread(move |ctx| {
-                    let offline_data = match ctx.world.get_resource::<MqttClient>() {
-                        Some(client) => {
-                            if client.inner_client.is_connected() {
-                                client.inner_client.publish(msg.into());
-                                None
-                            } else {
-                                ctx.world.send_event(event::RestartClient);
-                                Some(msg)
-                            }
-                        }
-                        None => Some(msg),
-                    };
+        let process_msg = move |(msg, maybe_client, cache): (
+            component::PublishMsg,
+            Option<paho_mqtt::AsyncClient>,
+            &'static Mutex<rusqlite::Connection>,
+        )| {
+            rt.spawn_background_task(move |_| async move {
+                match maybe_client {
+                    Some(client) => {
+                        let res = client
+                            .publish(msg.clone().into())
+                            .await
+                            .map_err(|e| (e.to_string(), msg));
 
-                    if let Some(to_file) = offline_data {
-                        let mut cache = ctx.world.get_resource_mut::<MqttCacheManager>().unwrap();
-                        log::info!("cached msg: {:?}", to_file);
-                        cache.add(&to_file).unwrap();
+                        if let Err((e, msg)) = res {
+                            log::warn!("failed to publish mqtt msg, reason: {e}");
+                            MqttCacheManager::add_query(cache, &msg).await.unwrap();
+                        }
                     }
-                })
-                .await;
+                    None => {
+                        MqttCacheManager::add_query(cache, &msg).await.unwrap();
+                    }
+                }
             });
         };
 
-        query
-            .iter_mut()
-            .flat_map(|mut data| data.msg.take())
-            .for_each(process_msg);
+        match client {
+            Some(client) => {
+                query
+                    .iter_mut()
+                    .map(|msg| {
+                        (
+                            msg.clone(),
+                            Some(client.inner_client.clone()),
+                            cache_manager.connection,
+                        )
+                    })
+                    .for_each(process_msg);
+            }
+            None => {
+                query
+                    .iter_mut()
+                    .map(|msg| (msg.clone(), None, cache_manager.connection))
+                    .for_each(process_msg);
+            }
+        }
+
+        entt.iter().for_each(|entt| {
+            cmd.entity(entt).remove::<component::PublishMsg>();
+        });
     }
 
     pub fn publish_offline_cache(
@@ -245,7 +312,7 @@ mod system {
 
         cache.read().unwrap().into_iter().for_each(|msg| {
             log::info!("queued cached msg -> {:?}", msg);
-            cmd.spawn(component::PublishMsg::from(msg));
+            cmd.spawn(msg);
         });
     }
 }
@@ -257,8 +324,8 @@ pub mod component {
 
     use super::Qos;
 
-    #[derive(serde::Serialize, serde::Deserialize, Clone)]
-    pub(super) struct PublishMsgInner {
+    #[derive(Debug, Component, serde::Serialize, serde::Deserialize, Clone)]
+    pub struct PublishMsg {
         #[serde(
             serialize_with = "crate::helper::serialize_arc_str",
             deserialize_with = "crate::helper::deserialize_arc_str"
@@ -271,44 +338,23 @@ pub mod component {
         payload: Arc<[u8]>,
         qos: Qos,
     }
-    impl std::fmt::Debug for PublishMsgInner {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("PublishMsgInner")
-                .field("topic", &self.topic)
-                .field("payload", &std::str::from_utf8(&self.payload).unwrap())
-                .field("qos", &self.qos)
-                .finish()
+    impl PublishMsg {
+        pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
+            Self {
+                topic: topic.as_ref().into(),
+                payload: payload.as_ref().into(),
+                qos,
+            }
         }
     }
-    impl From<PublishMsgInner> for paho_mqtt::Message {
-        fn from(value: PublishMsgInner) -> Self {
-            let PublishMsgInner {
+    impl From<PublishMsg> for paho_mqtt::Message {
+        fn from(value: PublishMsg) -> Self {
+            let PublishMsg {
                 topic,
                 payload,
                 qos,
             } = value;
             Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
-        }
-    }
-
-    #[derive(Debug, Component)]
-    pub struct PublishMsg {
-        pub(super) msg: Option<PublishMsgInner>,
-    }
-    impl PublishMsg {
-        pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
-            Self {
-                msg: Some(PublishMsgInner {
-                    topic: topic.as_ref().into(),
-                    payload: payload.as_ref().into(),
-                    qos,
-                }),
-            }
-        }
-    }
-    impl From<PublishMsgInner> for PublishMsg {
-        fn from(msg: PublishMsgInner) -> Self {
-            Self { msg: Some(msg) }
         }
     }
 }
@@ -471,34 +517,3 @@ struct MqttMessageSender(std::sync::mpsc::Sender<event::MqttMessage>);
 
 #[derive(Debug, Resource)]
 struct Subscriptions(Vec<(&'static str, Qos)>);
-
-#[derive(Debug, Resource)]
-struct MqttCacheManager {
-    pub file: File,
-}
-impl MqttCacheManager {
-    fn new(client_id: &'static str, path: &Path) -> Self {
-        let mut path = PathBuf::from(path);
-        path.push("cache");
-        path.push(format!("{client_id}.mqtt"));
-
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-
-        Self {
-            file: std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .read(true)
-                .open(path)
-                .unwrap(),
-        }
-    }
-
-    fn add(&mut self, msg: &component::PublishMsgInner) -> std::io::Result<()> {
-        todo!()
-    }
-
-    fn read(&mut self) -> std::io::Result<Vec<component::PublishMsgInner>> {
-        todo!()
-    }
-}
