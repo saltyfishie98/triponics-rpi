@@ -251,14 +251,24 @@ mod system {
 }
 
 pub mod component {
+    use std::sync::Arc;
+
     use bevy_ecs::component::Component;
 
     use super::Qos;
 
-    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(serde::Serialize, serde::Deserialize, Clone)]
     pub(super) struct PublishMsgInner {
-        topic: String,
-        payload: Vec<u8>,
+        #[serde(
+            serialize_with = "crate::helper::serialize_arc_str",
+            deserialize_with = "crate::helper::deserialize_arc_str"
+        )]
+        topic: Arc<str>,
+        #[serde(
+            serialize_with = "crate::helper::serialize_arc_bytes",
+            deserialize_with = "crate::helper::deserialize_arc_bytes"
+        )]
+        payload: Arc<[u8]>,
         qos: Qos,
     }
     impl std::fmt::Debug for PublishMsgInner {
@@ -277,7 +287,7 @@ pub mod component {
                 payload,
                 qos,
             } = value;
-            Self::new(topic, payload, qos as i32)
+            Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
         }
     }
 
@@ -286,11 +296,11 @@ pub mod component {
         pub(super) msg: Option<PublishMsgInner>,
     }
     impl PublishMsg {
-        pub fn new(topic: impl Into<String>, payload: impl Into<Vec<u8>>, qos: Qos) -> Self {
+        pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
             Self {
                 msg: Some(PublishMsgInner {
-                    topic: topic.into(),
-                    payload: payload.into(),
+                    topic: topic.as_ref().into(),
+                    payload: payload.as_ref().into(),
                     qos,
                 }),
             }

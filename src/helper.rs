@@ -27,16 +27,45 @@ pub fn init_logging() {
     tracing::subscriber::set_global_default(subscriber.with(fmt)).unwrap();
 }
 
+pub fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(String::deserialize(deserializer)?.into())
+}
+
+pub fn serialize_arc_str<S>(v: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(v)
+}
+
+pub fn deserialize_arc_bytes<'de, D>(deserializer: D) -> Result<Arc<[u8]>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Vec::deserialize(deserializer)?.into())
+}
+
+pub fn serialize_arc_bytes<S>(v: &Arc<[u8]>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_bytes(v.as_ref())
+}
+
 // This introduces event channels, on one side of which is mpsc::Sender<T>, and on another
 // side is bevy's EventReader<T>, and it automatically bridges between the two.
 use std::sync::mpsc::Receiver;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::event::EventWriter;
 use bevy_ecs::system::Resource;
 use bevy_ecs::{event::Event, system::Res};
 use bevy_internal::prelude::{Deref, DerefMut};
+use serde::Deserialize;
 
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);
