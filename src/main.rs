@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
             (
                 control.run_if(on_timer(Duration::from_secs(1))),
                 log_mqtt_msg,
-                publish.run_if(on_timer(Duration::from_secs_f32(0.5))),
+                publish.run_if(on_timer(Duration::from_secs_f32(1.0))),
             ),
         )
         .run();
@@ -72,6 +72,10 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
+    if counter.0 > 20 {
+        return;
+    }
+
     let payload = format!("hello {}", counter.0);
 
     // log::info!("{payload}");

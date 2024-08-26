@@ -92,7 +92,7 @@ impl MqttCacheManager {
             )
             .map(|_| ())?);
 
-        log::trace!("cached {msg_1:?}");
+        log::debug!("cached -> {msg_1:?}");
         out
     }
 
@@ -151,7 +151,7 @@ mod system {
         static mut RESTARTING: bool = false;
         unsafe {
             if RESTARTING {
-                log::info!("mqtt client is already restarting");
+                log::trace!("mqtt client is already restarting");
                 return;
             }
 
@@ -202,6 +202,7 @@ mod system {
             .properties(
                 paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
             )
+            .keep_alive_interval(Duration::from_secs(1))
             .finalize();
 
             log::trace!("setup mqtt configs!");
@@ -285,15 +286,22 @@ mod system {
             &'static Mutex<rusqlite::Connection>,
         )| {
             rt.spawn_background_task(move |_| async move {
+                log::debug!("received -> {msg:?}");
                 match maybe_client {
                     Some(client) => {
-                        let res = client.publish(msg.clone().into()).await;
+                        let publish = async {
+                            let res = client.publish(msg.clone().into()).await;
 
-                        if let Err(e) = res {
-                            log::warn!("failed to publish mqtt msg, reason: {e}");
+                            if let Err(e) = res {
+                                log::warn!("failed to publish mqtt msg, reason: {e}");
+                                MqttCacheManager::add(cache, &msg).await.unwrap();
+                            } else {
+                                log::debug!("published -> {msg:?}");
+                            }
+                        };
+
+                        if (tokio::time::timeout(Duration::from_secs(1), publish).await).is_err() {
                             MqttCacheManager::add(cache, &msg).await.unwrap();
-                        } else {
-                            log::trace!("published -> {msg:?}");
                         }
                     }
                     None => {
