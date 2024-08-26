@@ -1,0 +1,1 @@
+SELECT (data) FROM cache ORDER BY id ASC LIMIT ?

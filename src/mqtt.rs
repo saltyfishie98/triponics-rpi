@@ -75,13 +75,14 @@ impl MqttCacheManager {
         Self { connection }
     }
 
-    async fn add_query(
+    async fn add(
         conn: &'static Mutex<rusqlite::Connection>,
         msg: &component::PublishMsg,
     ) -> anyhow::Result<()> {
         let conn = conn.lock().await;
 
-        Ok(conn
+        let msg_1 = msg.clone();
+        let out = Ok(conn
             .execute(
                 include_str!("sql/add_data.sql"),
                 (
@@ -89,12 +90,39 @@ impl MqttCacheManager {
                     postcard::to_allocvec(msg)?,
                 ),
             )
-            .map(|_| ())?)
+            .map(|_| ())?);
+
+        log::trace!("cached {msg_1:?}");
+        out
     }
 
-    fn read(&mut self) -> std::io::Result<Vec<component::PublishMsg>> {
-        todo!()
+    async fn read(
+        conn: &'static Mutex<rusqlite::Connection>,
+        count: u32,
+    ) -> anyhow::Result<Vec<component::PublishMsg>> {
+        let conn = conn.lock().await;
+
+        let mut stmt = conn.prepare(include_str!("sql/read_data.sql"))?;
+        let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
+
+        let out = rows
+            .map(|data| {
+                Ok::<_, anyhow::Error>(postcard::from_bytes::<component::PublishMsg>(&data?)?)
+            })
+            .collect::<Result<Vec<_>, _>>();
+
+        if let Err(e) = conn.execute(include_str!("sql/delete_data.sql"), [count]) {
+            log::warn!("failed to delete cached data, reason {e}");
+        }
+
+        out
     }
+
+    // async fn read(&mut self) -> anyhow::Result<()> {
+    //     let conn = conn.lock().await;
+
+    //     todo!()
+    // }
 }
 
 mod system {
@@ -143,11 +171,19 @@ mod system {
                 mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
             ) {
                 let _ = start_fence_rx.await;
+                log::trace!("started recv task!");
 
-                while let Some(Some(msg)) = stream.next().await {
-                    log::trace!("polled mqtt msg -> {msg}");
-                    if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
-                        log::warn!("{e}");
+                while let Some(msg) = stream.next().await {
+                    match msg {
+                        Some(msg) => {
+                            log::trace!("polled mqtt msg -> {msg}");
+                            if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
+                                log::warn!("{e}");
+                            }
+                        }
+                        None => {
+                            log::trace!("disconnected");
+                        }
                     }
                 }
             }
@@ -168,9 +204,11 @@ mod system {
             )
             .finalize();
 
+            log::trace!("setup mqtt configs!");
+
             match inner_client.connect(conn_opts).await {
                 Err(e) => {
-                    log::warn!("{e}");
+                    log::warn!("failed to connect to mqtt broker, reason: {e}");
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     ctx.run_on_main_thread(move |ctx| ctx.world.send_event(event::RestartClient))
                         .await;
@@ -219,6 +257,7 @@ mod system {
 
                     ctx.run_on_main_thread(move |ctx| {
                         ctx.world.insert_resource(client);
+                        log::trace!("connected to mqtt broker!");
                     })
                     .await;
                 }
@@ -248,18 +287,17 @@ mod system {
             rt.spawn_background_task(move |_| async move {
                 match maybe_client {
                     Some(client) => {
-                        let res = client
-                            .publish(msg.clone().into())
-                            .await
-                            .map_err(|e| (e.to_string(), msg));
+                        let res = client.publish(msg.clone().into()).await;
 
-                        if let Err((e, msg)) = res {
+                        if let Err(e) = res {
                             log::warn!("failed to publish mqtt msg, reason: {e}");
-                            MqttCacheManager::add_query(cache, &msg).await.unwrap();
+                            MqttCacheManager::add(cache, &msg).await.unwrap();
+                        } else {
+                            log::trace!("published -> {msg:?}");
                         }
                     }
                     None => {
-                        MqttCacheManager::add_query(cache, &msg).await.unwrap();
+                        MqttCacheManager::add(cache, &msg).await.unwrap();
                     }
                 }
             });
@@ -293,9 +331,10 @@ mod system {
 
     pub fn publish_offline_cache(
         mut cmd: Commands,
-        mut cache: ResMut<MqttCacheManager>,
-        client: Option<ResMut<MqttClient>>,
         mut restarter: EventWriter<event::RestartClient>,
+        rt: Res<TokioTasksRuntime>,
+        cache: Res<MqttCacheManager>,
+        client: Option<ResMut<MqttClient>>,
     ) {
         if client.is_none() {
             log::trace!("publish cache -> blocked by unavailable mqtt client");
@@ -310,10 +349,18 @@ mod system {
             return;
         }
 
-        cache.read().unwrap().into_iter().for_each(|msg| {
-            log::info!("queued cached msg -> {:?}", msg);
-            cmd.spawn(msg);
-        });
+        let conn = cache.connection;
+
+        let res = rt
+            .runtime()
+            .block_on(async { MqttCacheManager::read(conn, 100).await });
+
+        match res {
+            Ok(msg_vec) => msg_vec.into_iter().for_each(|msg| {
+                cmd.spawn(msg);
+            }),
+            Err(e) => log::warn!("failed to read from cache, reason: {e}"),
+        }
     }
 }
 
@@ -324,19 +371,19 @@ pub mod component {
 
     use super::Qos;
 
-    #[derive(Debug, Component, serde::Serialize, serde::Deserialize, Clone)]
+    #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
     pub struct PublishMsg {
         #[serde(
             serialize_with = "crate::helper::serialize_arc_str",
             deserialize_with = "crate::helper::deserialize_arc_str"
         )]
-        topic: Arc<str>,
+        pub(super) topic: Arc<str>,
         #[serde(
             serialize_with = "crate::helper::serialize_arc_bytes",
             deserialize_with = "crate::helper::deserialize_arc_bytes"
         )]
-        payload: Arc<[u8]>,
-        qos: Qos,
+        pub(super) payload: Arc<[u8]>,
+        pub(super) qos: Qos,
     }
     impl PublishMsg {
         pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
@@ -345,6 +392,18 @@ pub mod component {
                 payload: payload.as_ref().into(),
                 qos,
             }
+        }
+    }
+    impl std::fmt::Debug for PublishMsg {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("PublishMsg")
+                .field("topic", &self.topic)
+                .field(
+                    "payload",
+                    &String::from_utf8(self.payload.as_ref().into()).unwrap(),
+                )
+                .field("qos", &self.qos)
+                .finish()
         }
     }
     impl From<PublishMsg> for paho_mqtt::Message {

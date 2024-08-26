@@ -6,9 +6,10 @@ use std::time::Duration;
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
     event::EventReader,
+    schedule::IntoSystemConfigs,
     system::{Commands, ResMut},
 };
-use bevy_internal::MinimalPlugins;
+use bevy_internal::{time::common_conditions::on_timer, MinimalPlugins};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
 #[allow(unused_imports)]
@@ -34,11 +35,19 @@ fn main() -> anyhow::Result<()> {
             client_create_options: mqtt::MqttCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
+                request_channel_capacity: 100,
                 ..Default::default()
             },
         },))
         .add_systems(Startup, exit_task)
-        .add_systems(Update, (log_mqtt_msg, publish))
+        .add_systems(
+            Update,
+            (
+                control.run_if(on_timer(Duration::from_secs(1))),
+                log_mqtt_msg,
+                publish.run_if(on_timer(Duration::from_secs_f32(0.5))),
+            ),
+        )
         .run();
 
     log::info!("bye!");
@@ -63,10 +72,6 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    if counter.0 > 10 {
-        return;
-    }
-
     let payload = format!("hello {}", counter.0);
 
     // log::info!("{payload}");
@@ -78,4 +83,8 @@ fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
     ));
 
     counter.0 += 1;
+}
+
+fn control() {
+    log::info!("ping");
 }
