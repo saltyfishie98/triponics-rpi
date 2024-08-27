@@ -266,6 +266,8 @@ mod system {
 
             log::info!("mqtt client restarted!");
 
+            tokio::time::sleep(Duration::from_secs(5)).await;
+
             unsafe {
                 RESTARTING = false;
             }
@@ -289,20 +291,30 @@ mod system {
                 log::debug!("received -> {msg:?}");
                 match maybe_client {
                     Some(client) => {
-                        let publish = async {
-                            let res = client.publish(msg.clone().into()).await;
-
-                            if let Err(e) = res {
-                                log::warn!("failed to publish mqtt msg, reason: {e}");
-                                MqttCacheManager::add(cache, &msg).await.unwrap();
-                            } else {
-                                log::debug!("published -> {msg:?}");
+                        match client.try_publish(msg.clone().into()) {
+                            Ok(o) => {
+                                log::debug!("published msg -> {}", o.message());
                             }
-                        };
-
-                        if (tokio::time::timeout(Duration::from_secs(1), publish).await).is_err() {
-                            MqttCacheManager::add(cache, &msg).await.unwrap();
+                            Err(e) => {
+                                log::warn!("failed to publish message, reason {e}");
+                                MqttCacheManager::add(cache, &msg).await.unwrap();
+                            }
                         }
+
+                        // let publish = async {
+                        //     let res = client.publish(msg.clone().into()).await;
+
+                        //     if let Err(e) = res {
+                        //         log::warn!("failed to publish mqtt msg, reason: {e}");
+                        //         MqttCacheManager::add(cache, &msg).await.unwrap();
+                        //     } else {
+                        //         log::debug!("published -> {msg:?}");
+                        //     }
+                        // };
+
+                        // if (tokio::time::timeout(Duration::from_secs(30), publish).await).is_err() {
+                        //     MqttCacheManager::add(cache, &msg).await.unwrap();
+                        // }
                     }
                     None => {
                         MqttCacheManager::add(cache, &msg).await.unwrap();

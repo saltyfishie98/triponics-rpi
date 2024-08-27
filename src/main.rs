@@ -21,6 +21,10 @@ struct Counter(u32);
 fn main() -> anyhow::Result<()> {
     helper::init_logging();
 
+    let mut path = std::env::current_dir().unwrap();
+    path.push("cache");
+    path.push("paho");
+
     App::new()
         .insert_resource(Counter(0))
         .add_plugins((
@@ -36,6 +40,7 @@ fn main() -> anyhow::Result<()> {
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
                 request_channel_capacity: 100,
+                persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
                 ..Default::default()
             },
         },))
