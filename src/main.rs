@@ -77,7 +77,7 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    if counter.0 > 20 {
+    if counter.0 > 10 {
         return;
     }
 

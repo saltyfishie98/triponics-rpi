@@ -24,7 +24,8 @@ pub struct MqttPlugin {
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
-        let (mqtt_message_tx, receiver) = std::sync::mpsc::channel::<event::MqttMessage>();
+        let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
+            std::sync::mpsc::channel::<event::MqttMessage>();
 
         let Self {
             client_create_options,
@@ -33,14 +34,13 @@ impl Plugin for MqttPlugin {
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(Subscriptions(subscriptions.to_vec()))
-            .insert_resource(MqttMessageSender(mqtt_message_tx))
+            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id,
                 client_create_options.offline_storage_path.as_path(),
             ))
             .add_event::<event::RestartClient>()
-            .add_event_channel(receiver)
-            .add_systems(Startup, system::setup_offline_path)
+            .add_event_channel(mqtt_incoming_msg_rx)
             .add_systems(
                 Update,
                 (
@@ -54,224 +54,39 @@ impl Plugin for MqttPlugin {
     }
 }
 
-#[derive(Debug, Resource)]
-struct MqttCacheManager {
-    connection: &'static Mutex<rusqlite::Connection>,
-}
-impl MqttCacheManager {
-    fn new(client_id: &'static str, path: &Path) -> Self {
-        let mut path = PathBuf::from(path);
-        path.push("cache");
-        path.push(format!("{client_id}.db3"));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-
-        let conn = rusqlite::Connection::open(path).unwrap();
-        conn.execute(include_str!("sql/create_table.sql"), ())
-            .unwrap();
-
-        static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
-        let connection = DB_CONNECTION.get_or_init(|| Mutex::new(conn));
-
-        Self { connection }
-    }
-
-    async fn add(
-        conn: &'static Mutex<rusqlite::Connection>,
-        msg: &component::PublishMsg,
-    ) -> anyhow::Result<()> {
-        let conn = conn.lock().await;
-
-        let msg_1 = msg.clone();
-        let out = Ok(conn
-            .execute(
-                include_str!("sql/add_data.sql"),
-                (
-                    time::OffsetDateTime::now_utc().unix_timestamp(),
-                    postcard::to_allocvec(msg)?,
-                ),
-            )
-            .map(|_| ())?);
-
-        log::debug!("cached -> {msg_1:?}");
-        out
-    }
-
-    async fn read(
-        conn: &'static Mutex<rusqlite::Connection>,
-        count: u32,
-    ) -> anyhow::Result<Vec<component::PublishMsg>> {
-        let conn = conn.lock().await;
-
-        let mut stmt = conn.prepare(include_str!("sql/read_data.sql"))?;
-        let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
-
-        let out = rows
-            .map(|data| {
-                Ok::<_, anyhow::Error>(postcard::from_bytes::<component::PublishMsg>(&data?)?)
-            })
-            .collect::<Result<Vec<_>, _>>();
-
-        if let Err(e) = conn.execute(include_str!("sql/delete_data.sql"), [count]) {
-            log::warn!("failed to delete cached data, reason {e}");
-        }
-
-        out
-    }
-
-    // async fn read(&mut self) -> anyhow::Result<()> {
-    //     let conn = conn.lock().await;
-
-    //     todo!()
-    // }
-}
-
 mod system {
     use bevy_ecs::entity::Entity;
     use bevy_ecs::event::EventWriter;
     use bevy_ecs::query::With;
     use bevy_ecs::system::{Commands, ResMut};
+    use bevy_ecs::world::World;
 
     use super::component;
     use super::*;
 
-    pub fn setup_offline_path() {}
+    pub fn restart_client(world: &mut World) {
+        async fn mqtt_recv_task(
+            mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttMessage>,
+            start_fence_rx: tokio::sync::oneshot::Receiver<()>,
+            mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
+        ) {
+            let _ = start_fence_rx.await;
+            log::debug!("started recv task!");
 
-    pub fn restart_client(
-        rt: Res<TokioTasksRuntime>,
-        client_create_options: Res<MqttCreateOptions>,
-        mqtt_msg_tx: Res<MqttMessageSender>,
-        mut ev: EventReader<event::RestartClient>,
-    ) {
-        if ev.is_empty() {
-            return;
-        } else {
-            ev.clear();
-        }
-
-        static mut RESTARTING: bool = false;
-        unsafe {
-            if RESTARTING {
-                log::trace!("mqtt client is already restarting");
-                return;
-            }
-
-            RESTARTING = true;
-        }
-
-        log::info!("restarting mqtt client!");
-
-        let client_create_options = client_create_options.clone();
-        let (start_fence_tx, start_fence_rx) = tokio::sync::oneshot::channel::<()>();
-        let mqtt_msg_tx = mqtt_msg_tx.0.clone();
-
-        rt.spawn_background_task(|mut ctx| async move {
-            async fn mqtt_recv_task(
-                mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttMessage>,
-                start_fence_rx: tokio::sync::oneshot::Receiver<()>,
-                mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
-            ) {
-                let _ = start_fence_rx.await;
-                log::trace!("started recv task!");
-
-                while let Some(msg) = stream.next().await {
-                    match msg {
-                        Some(msg) => {
-                            log::trace!("polled mqtt msg -> {msg}");
-                            if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
-                                log::warn!("{e}");
-                            }
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Some(msg) => {
+                        log::trace!("polled mqtt msg -> {msg}");
+                        if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
+                            log::warn!("{e}");
                         }
-                        None => {
-                            log::trace!("disconnected");
-                        }
+                    }
+                    None => {
+                        log::trace!("disconnected");
                     }
                 }
             }
-
-            let mut inner_client =
-                paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::from(&client_create_options))
-                    .unwrap_or_else(|err| {
-                        println!("Error creating the client: {}", err);
-                        std::process::exit(1);
-                    });
-
-            let conn_opts = paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(
-                paho_mqtt::MQTT_VERSION_5,
-            )
-            .clean_start(false)
-            .properties(
-                paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
-            )
-            .keep_alive_interval(Duration::from_secs(1))
-            .finalize();
-
-            log::trace!("setup mqtt configs!");
-
-            match inner_client.connect(conn_opts).await {
-                Err(e) => {
-                    log::warn!("failed to connect to mqtt broker, reason: {e}");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    ctx.run_on_main_thread(move |ctx| ctx.world.send_event(event::RestartClient))
-                        .await;
-                }
-                Ok(_) => {
-                    let recv_task = tokio::spawn(mqtt_recv_task(
-                        mqtt_msg_tx,
-                        start_fence_rx,
-                        inner_client.get_stream(client_create_options.request_channel_capacity),
-                    ));
-
-                    let client = MqttClient {
-                        inner_client,
-                        recv_task,
-                    };
-
-                    let (topics, qos_s) = ctx
-                        .run_on_main_thread(move |ctx| {
-                            let world = ctx.world;
-                            if let Some(current_client) = world.remove_resource::<MqttClient>() {
-                                current_client.recv_task.abort();
-                            }
-
-                            let Subscriptions(subs) =
-                                world.get_resource::<Subscriptions>().unwrap();
-
-                            subs.iter().fold(
-                                (Vec::new(), Vec::new()),
-                                |(mut topics, mut qos_s), (topic, qos)| {
-                                    topics.push(*topic);
-                                    qos_s.push(*qos as i32);
-                                    (topics, qos_s)
-                                },
-                            )
-                        })
-                        .await;
-
-                    if !topics.is_empty() {
-                        log::debug!("subscribing to topic: {:?}", topics);
-                        if let Err(e) = client.inner_client.subscribe_many(&topics, &qos_s).await {
-                            log::warn!("error on restart subscription, reason: {}", e);
-                        }
-                    }
-
-                    let _ = start_fence_tx.send(());
-
-                    ctx.run_on_main_thread(move |ctx| {
-                        ctx.world.insert_resource(client);
-                        log::trace!("connected to mqtt broker!");
-                    })
-                    .await;
-                }
-            }
-
-            log::info!("mqtt client restarted!");
-
-            tokio::time::sleep(Duration::from_secs(5)).await;
-
-            unsafe {
-                RESTARTING = false;
-            }
-        });
+        }
     }
 
     pub fn publish_message(
@@ -282,53 +97,45 @@ mod system {
         cache_manager: Res<MqttCacheManager>,
         entt: Query<Entity, With<component::PublishMsg>>,
     ) {
-        let process_msg = move |(msg, maybe_client, cache): (
-            component::PublishMsg,
-            Option<paho_mqtt::AsyncClient>,
-            &'static Mutex<rusqlite::Connection>,
-        )| {
+        fn process_msg(
+            (rt, msg, maybe_client, cache): (
+                &Res<TokioTasksRuntime>,
+                component::PublishMsg,
+                Option<paho_mqtt::AsyncClient>,
+                &'static Mutex<rusqlite::Connection>,
+            ),
+        ) {
             rt.spawn_background_task(move |_| async move {
                 log::debug!("received -> {msg:?}");
                 match maybe_client {
-                    Some(client) => {
-                        match client.try_publish(msg.clone().into()) {
-                            Ok(o) => {
-                                log::debug!("published msg -> {}", o.message());
-                            }
-                            Err(e) => {
-                                log::warn!("failed to publish message, reason {e}");
-                                MqttCacheManager::add(cache, &msg).await.unwrap();
-                            }
+                    Some(client) => match client.try_publish(msg.clone().into()) {
+                        Ok(o) => {
+                            log::debug!("published msg -> {}", o.message());
                         }
-
-                        // let publish = async {
-                        //     let res = client.publish(msg.clone().into()).await;
-
-                        //     if let Err(e) = res {
-                        //         log::warn!("failed to publish mqtt msg, reason: {e}");
-                        //         MqttCacheManager::add(cache, &msg).await.unwrap();
-                        //     } else {
-                        //         log::debug!("published -> {msg:?}");
-                        //     }
-                        // };
-
-                        // if (tokio::time::timeout(Duration::from_secs(30), publish).await).is_err() {
-                        //     MqttCacheManager::add(cache, &msg).await.unwrap();
-                        // }
-                    }
+                        Err(e) => {
+                            log::warn!("failed to publish message, reason {e}");
+                            MqttCacheManager::add(cache, &msg).await.unwrap();
+                        }
+                    },
                     None => {
                         MqttCacheManager::add(cache, &msg).await.unwrap();
                     }
                 }
             });
-        };
+        }
 
         match client {
             Some(client) => {
+                if !client.inner_client.is_connected() {
+                    log::info!("not connected");
+                    return;
+                }
+
                 query
                     .iter_mut()
                     .map(|msg| {
                         (
+                            &rt,
                             msg.clone(),
                             Some(client.inner_client.clone()),
                             cache_manager.connection,
@@ -337,9 +144,10 @@ mod system {
                     .for_each(process_msg);
             }
             None => {
+                log::info!("no client");
                 query
                     .iter_mut()
-                    .map(|msg| (msg.clone(), None, cache_manager.connection))
+                    .map(|msg| (&rt, msg.clone(), None, cache_manager.connection))
                     .for_each(process_msg);
             }
         }
@@ -358,6 +166,7 @@ mod system {
     ) {
         if client.is_none() {
             log::trace!("publish cache -> blocked by unavailable mqtt client");
+            restarter.send(event::RestartClient);
             return;
         }
 
@@ -365,6 +174,7 @@ mod system {
 
         if !client.inner_client.is_connected() {
             log::trace!("publish cache -> blocked by mqtt client not connected");
+            log::trace!("restarting due to client not connected!");
             restarter.send(event::RestartClient);
             return;
         }
@@ -446,6 +256,71 @@ pub mod event {
 
     #[derive(Debug, Event)]
     pub struct MqttMessage(pub paho_mqtt::Message);
+}
+
+#[derive(Debug, Resource)]
+struct MqttCacheManager {
+    connection: &'static Mutex<rusqlite::Connection>,
+}
+impl MqttCacheManager {
+    fn new(client_id: &'static str, path: &Path) -> Self {
+        let mut path = PathBuf::from(path);
+        path.push("cache");
+        path.push(format!("{client_id}.db3"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute(include_str!("sql/create_table.sql"), ())
+            .unwrap();
+
+        static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
+        let connection = DB_CONNECTION.get_or_init(|| Mutex::new(conn));
+
+        Self { connection }
+    }
+
+    async fn add(
+        conn: &'static Mutex<rusqlite::Connection>,
+        msg: &component::PublishMsg,
+    ) -> anyhow::Result<()> {
+        let conn = conn.lock().await;
+
+        let msg_1 = msg.clone();
+        let out = Ok(conn
+            .execute(
+                include_str!("sql/add_data.sql"),
+                (
+                    time::OffsetDateTime::now_utc().unix_timestamp(),
+                    postcard::to_allocvec(msg)?,
+                ),
+            )
+            .map(|_| ())?);
+
+        log::debug!("cached -> {msg_1:?}");
+        out
+    }
+
+    async fn read(
+        conn: &'static Mutex<rusqlite::Connection>,
+        count: u32,
+    ) -> anyhow::Result<Vec<component::PublishMsg>> {
+        let conn = conn.lock().await;
+
+        let mut stmt = conn.prepare(include_str!("sql/read_data.sql"))?;
+        let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
+
+        let out = rows
+            .map(|data| {
+                Ok::<_, anyhow::Error>(postcard::from_bytes::<component::PublishMsg>(&data?)?)
+            })
+            .collect::<Result<Vec<_>, _>>();
+
+        if let Err(e) = conn.execute(include_str!("sql/delete_data.sql"), [count]) {
+            log::warn!("failed to delete cached data, reason {e}");
+        }
+
+        out
+    }
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -592,7 +467,13 @@ pub struct MqttClient {
 }
 
 #[derive(Debug, Resource)]
-struct MqttMessageSender(std::sync::mpsc::Sender<event::MqttMessage>);
+struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttMessage>);
 
 #[derive(Debug, Resource)]
 struct Subscriptions(Vec<(&'static str, Qos)>);
+
+#[derive(Debug, Resource)]
+struct RestartTaskHandle(tokio::task::JoinHandle<()>);
+
+#[derive(Debug, Resource)]
+struct RestartDone;
