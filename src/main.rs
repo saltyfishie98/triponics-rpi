@@ -1,5 +1,6 @@
 mod helper;
 mod mqtt;
+mod publish_state;
 
 use std::time::Duration;
 
@@ -14,8 +15,16 @@ use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 #[allow(unused_imports)]
 use tracing as log;
 
-#[derive(bevy_ecs::system::Resource)]
+#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize)]
 struct Counter(u32);
+impl publish_state::PublishState for Counter {
+    fn to_publish(&self) -> mqtt::component::PublishMsg {
+        let mut payload = Vec::new();
+        serde_json::to_writer(&mut payload, self).unwrap();
+
+        mqtt::component::PublishMsg::new("aaa/counter", &payload, mqtt::Qos::_1)
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     helper::init_logging();
@@ -31,6 +40,9 @@ fn main() -> anyhow::Result<()> {
             ))),
             TokioTasksPlugin::default(),
         ))
+        .add_plugins(publish_state::StatePublishPlugin {
+            publish_interval: Duration::from_secs(1),
+        })
         .add_plugins(mqtt::MqttPlugin {
             client_create_options: mqtt::ClientCreateOptions {
                 restart_interval: Duration::from_secs(5),
@@ -76,14 +88,6 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 
 fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     log::trace!("update control");
-
-    let payload = format!("hello {}", counter.0);
-
-    cmd.spawn(mqtt::component::PublishMsg::new(
-        "saltyfishie",
-        payload,
-        mqtt::Qos::_1,
-    ));
-
+    cmd.spawn(publish_state::UpdatePublishState::new(counter.clone()));
     counter.0 += 1;
 }
