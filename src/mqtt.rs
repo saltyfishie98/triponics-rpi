@@ -7,6 +7,7 @@ use std::{
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::EventReader,
+    schedule::IntoSystemConfigs,
     system::{Query, Res, Resource},
 };
 use bevy_tokio_tasks::TokioTasksRuntime;
@@ -19,7 +20,7 @@ use tracing as log;
 
 #[derive(Default)]
 pub struct MqttPlugin {
-    pub client_create_options: MqttCreateOptions,
+    pub client_create_options: ClientCreateOptions,
     pub initial_subscriptions: &'static [(&'static str, Qos)],
 }
 impl Plugin for MqttPlugin {
@@ -37,7 +38,7 @@ impl Plugin for MqttPlugin {
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id,
-                client_create_options.offline_storage_path.as_path(),
+                client_create_options.cache_dir_path.as_path(),
             ))
             .add_event::<event::RestartClient>()
             .add_event_channel(mqtt_incoming_msg_rx)
@@ -45,12 +46,14 @@ impl Plugin for MqttPlugin {
                 Update,
                 (
                     system::restart_client,
-                    system::publish_offline_cache,
-                    system::publish_message,
+                    system::publish_offline_cache.after(system::restart_client),
+                    system::publish_message
+                        .after(system::restart_client)
+                        .after(system::publish_offline_cache),
                 ),
             )
             .world_mut()
-            .send_event(event::RestartClient);
+            .send_event(event::RestartClient("initial restart"));
     }
 }
 
@@ -64,13 +67,15 @@ mod system {
     use super::component;
     use super::*;
 
-    pub fn restart_client(world: &mut World) {
+    pub fn restart_client(
+        mut cmd: Commands,
+        mut ev: EventReader<event::RestartClient>,
+        client: Option<Res<MqttClient>>,
+    ) {
         async fn mqtt_recv_task(
             mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttMessage>,
-            start_fence_rx: tokio::sync::oneshot::Receiver<()>,
             mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
         ) {
-            let _ = start_fence_rx.await;
             log::debug!("started recv task!");
 
             while let Some(msg) = stream.next().await {
@@ -86,6 +91,161 @@ mod system {
                     }
                 }
             }
+        }
+
+        async fn make_client(
+            create_opts: &ClientCreateOptions,
+        ) -> Result<
+            (
+                paho_mqtt::AsyncClient,
+                paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
+            ),
+            paho_mqtt::Error,
+        > {
+            let conn_opts = {
+                paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(
+                    paho_mqtt::MQTT_VERSION_5,
+                )
+                .clean_start(false)
+                .properties(
+                    paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
+                )
+                .keep_alive_interval(Duration::from_secs(10))
+                .finalize()
+            };
+
+            // Create the client connection
+            let mut client =
+                paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::from(create_opts))
+                    .unwrap_or_else(|e| {
+                        println!("Error creating the client: {:?}", e);
+                        std::process::exit(1);
+                    });
+
+            client.set_connected_callback(|_| log::info!("CALLBACK: mqtt client connected"));
+            client.set_disconnected_callback(|_, _, _| {
+                log::info!("CALLBACK: mqtt client disconnected")
+            });
+
+            let strm = client.get_stream(create_opts.incoming_msg_buffer_size);
+            client.connect(conn_opts).await?;
+
+            Ok((client, strm))
+        }
+
+        if ev.is_empty() {
+            return;
+        }
+
+        let reason = Box::new(ev.read().next().unwrap().0);
+        ev.clear();
+
+        if let Some(client) = client {
+            if client.inner_client.is_connected() {
+                log::debug!("mqtt client already connected");
+                return;
+            }
+        }
+
+        cmd.add(|world: &mut World| {
+            if let Some(old_client) = world.remove_resource::<MqttClient>() {
+                log::debug!("removed old client");
+                old_client.inner_client.disconnect(None);
+                old_client.recv_task.abort();
+            }
+
+            match world.get_resource::<RestartTaskHandle>() {
+                None => {
+                    let (tx, rx) = crossbeam_channel::bounded::<NewMqttClient>(1);
+                    world.insert_resource(NewMqttClientRecv(rx));
+
+                    let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
+                    let opts = world.get_resource::<ClientCreateOptions>().unwrap().clone();
+
+                    let handle = rt.spawn_background_task(|_| async move {
+                        log::info!("restart mqtt client, reason: {reason}");
+                        tx.send(NewMqttClient(make_client(&opts).await)).unwrap();
+                        loop {
+                            tokio::task::yield_now().await;
+                        }
+                    });
+
+                    world.insert_resource(RestartTaskHandle(handle));
+                }
+                Some(_) => {
+                    let NewMqttClientRecv(rx) = world.get_resource::<NewMqttClientRecv>().unwrap();
+
+                    match rx.try_recv() {
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => panic!(),
+                        Err(crossbeam_channel::TryRecvError::Empty) => {
+                            log::trace!("mqtt client restarting...");
+                            return;
+                        }
+                        Ok(NewMqttClient(Ok((client, stream)))) => {
+                            let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
+                            let MqttIncommingMsgTx(tx) =
+                                world.get_resource::<MqttIncommingMsgTx>().unwrap();
+
+                            let mqtt_incoming_msg_queue = tx.clone();
+
+                            let recv_task = rt.spawn_background_task(|_| async move {
+                                mqtt_recv_task(mqtt_incoming_msg_queue, stream).await;
+                            });
+
+                            log::info!("mqtt client restarted");
+                            world.insert_resource(MqttClient {
+                                inner_client: client,
+                                recv_task,
+                            })
+                        }
+                        Ok(NewMqttClient(Err(e))) => {
+                            log::warn!("failed to restart mqtt client, reason: {e}");
+                            world.send_event(event::RestartClient("failed to connect"));
+                        }
+                    }
+
+                    if let Some(RestartTaskHandle(handle)) =
+                        world.remove_resource::<RestartTaskHandle>()
+                    {
+                        handle.abort();
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn publish_offline_cache(
+        mut cmd: Commands,
+        mut restarter: EventWriter<event::RestartClient>,
+        rt: Res<TokioTasksRuntime>,
+        cache: Res<MqttCacheManager>,
+        client: Option<ResMut<MqttClient>>,
+    ) {
+        if client.is_none() {
+            log::trace!("publish cache -> blocked by unavailable mqtt client");
+            restarter.send(event::RestartClient("client not present"));
+            return;
+        }
+
+        let client = client.unwrap();
+
+        if !client.inner_client.is_connected() {
+            log::trace!("publish cache -> blocked by mqtt client not connected");
+            restarter.send(event::RestartClient("client not connected"));
+            return;
+        }
+
+        let conn = cache.connection;
+
+        let res = rt
+            .runtime()
+            .block_on(async { MqttCacheManager::read(conn, 10).await });
+
+        match res {
+            Ok(msg_vec) => msg_vec.into_iter().for_each(|msg| {
+                cmd.spawn(msg);
+            }),
+            Err(e) => log::warn!("failed to read from cache, reason: {e}"),
         }
     }
 
@@ -127,7 +287,7 @@ mod system {
         match client {
             Some(client) => {
                 if !client.inner_client.is_connected() {
-                    log::info!("not connected");
+                    log::trace!("not connected");
                     return;
                 }
 
@@ -144,7 +304,7 @@ mod system {
                     .for_each(process_msg);
             }
             None => {
-                log::info!("no client");
+                log::trace!("no client");
                 query
                     .iter_mut()
                     .map(|msg| (&rt, msg.clone(), None, cache_manager.connection))
@@ -155,42 +315,6 @@ mod system {
         entt.iter().for_each(|entt| {
             cmd.entity(entt).remove::<component::PublishMsg>();
         });
-    }
-
-    pub fn publish_offline_cache(
-        mut cmd: Commands,
-        mut restarter: EventWriter<event::RestartClient>,
-        rt: Res<TokioTasksRuntime>,
-        cache: Res<MqttCacheManager>,
-        client: Option<ResMut<MqttClient>>,
-    ) {
-        if client.is_none() {
-            log::trace!("publish cache -> blocked by unavailable mqtt client");
-            restarter.send(event::RestartClient);
-            return;
-        }
-
-        let client = client.unwrap();
-
-        if !client.inner_client.is_connected() {
-            log::trace!("publish cache -> blocked by mqtt client not connected");
-            log::trace!("restarting due to client not connected!");
-            restarter.send(event::RestartClient);
-            return;
-        }
-
-        let conn = cache.connection;
-
-        let res = rt
-            .runtime()
-            .block_on(async { MqttCacheManager::read(conn, 100).await });
-
-        match res {
-            Ok(msg_vec) => msg_vec.into_iter().for_each(|msg| {
-                cmd.spawn(msg);
-            }),
-            Err(e) => log::warn!("failed to read from cache, reason: {e}"),
-        }
     }
 }
 
@@ -252,7 +376,7 @@ pub mod event {
     use bevy_ecs::event::Event;
 
     #[derive(Debug, Event)]
-    pub struct RestartClient;
+    pub struct RestartClient(pub &'static str);
 
     #[derive(Debug, Event)]
     pub struct MqttMessage(pub paho_mqtt::Message);
@@ -265,7 +389,6 @@ struct MqttCacheManager {
 impl MqttCacheManager {
     fn new(client_id: &'static str, path: &Path) -> Self {
         let mut path = PathBuf::from(path);
-        path.push("cache");
         path.push(format!("{client_id}.db3"));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 
@@ -355,11 +478,11 @@ impl From<&PersistenceType> for paho_mqtt::PersistenceType {
 }
 
 #[derive(Clone, Resource)]
-pub struct MqttCreateOptions {
+pub struct ClientCreateOptions {
     pub server_uri: &'static str,
     pub client_id: &'static str,
-    pub offline_storage_path: PathBuf,
-    pub request_channel_capacity: usize,
+    pub cache_dir_path: PathBuf,
+    pub incoming_msg_buffer_size: usize,
     pub max_buffered_messages: Option<i32>,
     pub persistence_type: Option<PersistenceType>,
     pub send_while_disconnected: Option<bool>,
@@ -368,16 +491,22 @@ pub struct MqttCreateOptions {
     pub restore_messages: Option<bool>,
     pub persist_qos0: Option<bool>,
 }
-impl Default for MqttCreateOptions {
+impl Default for ClientCreateOptions {
     fn default() -> Self {
+        let mut cache_dir_path = std::env::current_dir().unwrap();
+        cache_dir_path.push("cache");
+
+        let mut persist_path = cache_dir_path.clone();
+        persist_path.push("paho");
+
         Self {
             server_uri: "mqtt://test.mosquitto.org",
             client_id: Default::default(),
-            request_channel_capacity: 10,
-            offline_storage_path: std::env::current_dir().unwrap(),
+            incoming_msg_buffer_size: 25,
+            cache_dir_path,
+            persistence_type: Some(PersistenceType::FilePath(persist_path)),
 
             max_buffered_messages: Default::default(),
-            persistence_type: Default::default(),
             send_while_disconnected: Default::default(),
             allow_disconnected_send_at_anytime: Default::default(),
             delete_oldest_messages: Default::default(),
@@ -386,7 +515,7 @@ impl Default for MqttCreateOptions {
         }
     }
 }
-impl From<&'static str> for MqttCreateOptions {
+impl From<&'static str> for ClientCreateOptions {
     fn from(server_uri: &'static str) -> Self {
         Self {
             server_uri,
@@ -394,9 +523,9 @@ impl From<&'static str> for MqttCreateOptions {
         }
     }
 }
-impl From<&MqttCreateOptions> for paho_mqtt::CreateOptions {
-    fn from(value: &MqttCreateOptions) -> Self {
-        let MqttCreateOptions {
+impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
+    fn from(value: &ClientCreateOptions) -> Self {
+        let ClientCreateOptions {
             server_uri,
             client_id,
             max_buffered_messages,
@@ -406,8 +535,8 @@ impl From<&MqttCreateOptions> for paho_mqtt::CreateOptions {
             delete_oldest_messages,
             restore_messages,
             persist_qos0,
-            request_channel_capacity: _,
-            offline_storage_path: _,
+            incoming_msg_buffer_size: _,
+            cache_dir_path: _,
         } = value;
 
         let builder = paho_mqtt::CreateOptionsBuilder::new()
@@ -475,5 +604,16 @@ struct Subscriptions(Vec<(&'static str, Qos)>);
 #[derive(Debug, Resource)]
 struct RestartTaskHandle(tokio::task::JoinHandle<()>);
 
+#[derive(Resource)]
+struct NewMqttClient(
+    Result<
+        (
+            paho_mqtt::AsyncClient,
+            paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
+        ),
+        paho_mqtt::Error,
+    >,
+);
+
 #[derive(Debug, Resource)]
-struct RestartDone;
+struct NewMqttClientRecv(crossbeam_channel::Receiver<NewMqttClient>);

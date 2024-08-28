@@ -36,10 +36,10 @@ fn main() -> anyhow::Result<()> {
         .add_plugins((mqtt::MqttPlugin {
             // initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
             initial_subscriptions: &[],
-            client_create_options: mqtt::MqttCreateOptions {
+            client_create_options: mqtt::ClientCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
-                request_channel_capacity: 100,
+                incoming_msg_buffer_size: 100,
                 persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
                 ..Default::default()
             },
@@ -77,9 +77,9 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    if counter.0 > 10 {
-        return;
-    }
+    // if counter.0 > 20 {
+    //     return;
+    // }
 
     let payload = format!("hello {}", counter.0);
 

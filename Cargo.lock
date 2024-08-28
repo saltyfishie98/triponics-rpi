@@ -1593,6 +1593,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bevy_internal",
+ "crossbeam-channel",
  "error-stack",
  "futures",
  "macros",
