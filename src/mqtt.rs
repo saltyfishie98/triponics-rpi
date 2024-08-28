@@ -93,8 +93,22 @@ mod system {
             }
         }
 
+        async fn ping_task(client: paho_mqtt::AsyncClient, duration: Duration) {
+            loop {
+                log::debug!("ping mqtt");
+                client.publish(paho_mqtt::Message::new(
+                    format!("{}/ping", client.client_id()),
+                    [0u8],
+                    paho_mqtt::QOS_0,
+                ));
+                tokio::time::sleep(Duration::from_secs_f32(duration.as_secs_f32() * 0.7)).await;
+            }
+        }
+
         async fn make_client(
-            create_opts: &ClientCreateOptions,
+            create_opts: paho_mqtt::CreateOptions,
+            conn_opts: paho_mqtt::ConnectOptions,
+            stream_size: usize,
         ) -> Result<
             (
                 paho_mqtt::AsyncClient,
@@ -102,35 +116,31 @@ mod system {
             ),
             paho_mqtt::Error,
         > {
-            let conn_opts = {
-                paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(
-                    paho_mqtt::MQTT_VERSION_5,
-                )
-                .clean_start(false)
-                .properties(
-                    paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
-                )
-                .keep_alive_interval(Duration::from_secs(10))
-                .finalize()
-            };
-
             // Create the client connection
-            let mut client =
-                paho_mqtt::AsyncClient::new(paho_mqtt::CreateOptions::from(create_opts))
-                    .unwrap_or_else(|e| {
-                        println!("Error creating the client: {:?}", e);
-                        std::process::exit(1);
-                    });
+            let mut client = paho_mqtt::AsyncClient::new(create_opts).unwrap_or_else(|e| {
+                println!("Error creating the client: {:?}", e);
+                std::process::exit(1);
+            });
 
             client.set_connected_callback(|_| log::info!("CALLBACK: mqtt client connected"));
             client.set_disconnected_callback(|_, _, _| {
                 log::info!("CALLBACK: mqtt client disconnected")
             });
 
-            let strm = client.get_stream(create_opts.incoming_msg_buffer_size);
+            let strm = client.get_stream(stream_size);
             client.connect(conn_opts).await?;
 
             Ok((client, strm))
+        }
+
+        fn conn_opts() -> paho_mqtt::ConnectOptions {
+            paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5)
+                .clean_start(false)
+                .properties(
+                    paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
+                )
+                .keep_alive_interval(Duration::from_secs(1))
+                .finalize()
         }
 
         if ev.is_empty() {
@@ -150,8 +160,15 @@ mod system {
         cmd.add(|world: &mut World| {
             if let Some(old_client) = world.remove_resource::<MqttClient>() {
                 log::debug!("removed old client");
-                old_client.inner_client.disconnect(None);
-                old_client.recv_task.abort();
+                let MqttClient {
+                    inner_client,
+                    recv_task,
+                    ping_task,
+                } = old_client;
+
+                inner_client.disconnect(None);
+                recv_task.abort();
+                ping_task.abort();
             }
 
             match world.get_resource::<RestartTaskHandle>() {
@@ -159,16 +176,28 @@ mod system {
                     let (tx, rx) = crossbeam_channel::bounded::<NewMqttClient>(1);
                     world.insert_resource(NewMqttClientRecv(rx));
 
-                    let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
-                    let opts = world.get_resource::<ClientCreateOptions>().unwrap().clone();
+                    let handle = {
+                        let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
+                        let opts = world.get_resource::<ClientCreateOptions>().unwrap().clone();
 
-                    let handle = rt.spawn_background_task(|_| async move {
-                        log::info!("restart mqtt client, reason: {reason}");
-                        tx.send(NewMqttClient(make_client(&opts).await)).unwrap();
-                        loop {
-                            tokio::task::yield_now().await;
-                        }
-                    });
+                        let create_opts = paho_mqtt::CreateOptions::from(&opts);
+
+                        rt.spawn_background_task(move |_| async move {
+                            log::info!("restart mqtt client, reason: {reason}");
+                            tx.send(NewMqttClient(
+                                make_client(
+                                    create_opts,
+                                    conn_opts(),
+                                    opts.incoming_msg_buffer_size,
+                                )
+                                .await,
+                            ))
+                            .unwrap();
+                            loop {
+                                tokio::task::yield_now().await;
+                            }
+                        })
+                    };
 
                     world.insert_resource(RestartTaskHandle(handle));
                 }
@@ -192,10 +221,18 @@ mod system {
                                 mqtt_recv_task(mqtt_incoming_msg_queue, stream).await;
                             });
 
+                            let ping_task = {
+                                let ping_client = client.clone();
+                                rt.spawn_background_task(|_| async move {
+                                    ping_task(ping_client, Duration::from_secs(1)).await;
+                                })
+                            };
+
                             log::info!("mqtt client restarted");
                             world.insert_resource(MqttClient {
                                 inner_client: client,
                                 recv_task,
+                                ping_task,
                             })
                         }
                         Ok(NewMqttClient(Err(e))) => {
@@ -593,6 +630,7 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
 pub struct MqttClient {
     inner_client: paho_mqtt::AsyncClient,
     recv_task: tokio::task::JoinHandle<()>,
+    ping_task: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug, Resource)]

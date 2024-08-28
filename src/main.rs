@@ -77,9 +77,9 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 }
 
 fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    // if counter.0 > 20 {
-    //     return;
-    // }
+    if counter.0 > 10 {
+        return;
+    }
 
     let payload = format!("hello {}", counter.0);
 
@@ -95,5 +95,5 @@ fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
 }
 
 fn control() {
-    log::info!("ping");
+    log::info!("update control");
 }
