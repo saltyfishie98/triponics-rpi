@@ -1,10 +1,10 @@
 use std::{
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
-use bevy_app::{Plugin, Startup, Update};
+use bevy_app::{Plugin, Update};
 use bevy_ecs::{
     event::EventReader,
     schedule::IntoSystemConfigs,
@@ -21,6 +21,7 @@ use tracing as log;
 #[derive(Default)]
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
+    pub client_connect_options: ClientConnectOptions,
     pub initial_subscriptions: &'static [(&'static str, Qos)],
 }
 impl Plugin for MqttPlugin {
@@ -30,10 +31,12 @@ impl Plugin for MqttPlugin {
 
         let Self {
             client_create_options,
+            client_connect_options,
             initial_subscriptions: subscriptions,
         } = self;
 
         app.insert_resource(client_create_options.clone())
+            .insert_resource(client_connect_options.clone())
             .insert_resource(Subscriptions(subscriptions.to_vec()))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
@@ -81,7 +84,7 @@ mod system {
             while let Some(msg) = stream.next().await {
                 match msg {
                     Some(msg) => {
-                        log::trace!("polled mqtt msg -> {msg}");
+                        log::trace!("polled mqtt msg");
                         if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
                             log::warn!("{e}");
                         }
@@ -94,14 +97,17 @@ mod system {
         }
 
         async fn ping_task(client: paho_mqtt::AsyncClient, duration: Duration) {
+            let ping_interval = Duration::from_secs_f32(duration.as_secs_f32() * 0.7);
+            log::debug!("ping interval: {}", ping_interval.as_secs_f32());
+
             loop {
-                log::debug!("ping mqtt");
+                log::trace!("ping mqtt");
                 client.publish(paho_mqtt::Message::new(
                     format!("{}/ping", client.client_id()),
                     [0u8],
                     paho_mqtt::QOS_0,
                 ));
-                tokio::time::sleep(Duration::from_secs_f32(duration.as_secs_f32() * 0.7)).await;
+                tokio::time::sleep(ping_interval).await;
             }
         }
 
@@ -109,6 +115,7 @@ mod system {
             create_opts: paho_mqtt::CreateOptions,
             conn_opts: paho_mqtt::ConnectOptions,
             stream_size: usize,
+            (topics, qos): (Vec<&str>, Vec<i32>),
         ) -> Result<
             (
                 paho_mqtt::AsyncClient,
@@ -122,25 +129,16 @@ mod system {
                 std::process::exit(1);
             });
 
-            client.set_connected_callback(|_| log::info!("CALLBACK: mqtt client connected"));
+            client.set_connected_callback(|_| log::trace!("CALLBACK: mqtt client connected"));
             client.set_disconnected_callback(|_, _, _| {
-                log::info!("CALLBACK: mqtt client disconnected")
+                log::trace!("CALLBACK: mqtt client disconnected")
             });
 
             let strm = client.get_stream(stream_size);
             client.connect(conn_opts).await?;
+            client.subscribe_many(&topics, &qos).await?;
 
             Ok((client, strm))
-        }
-
-        fn conn_opts() -> paho_mqtt::ConnectOptions {
-            paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5)
-                .clean_start(false)
-                .properties(
-                    paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => 3600],
-                )
-                .keep_alive_interval(Duration::from_secs(1))
-                .finalize()
         }
 
         if ev.is_empty() {
@@ -171,6 +169,11 @@ mod system {
                 ping_task.abort();
             }
 
+            let connect_opts = world
+                .get_resource::<ClientConnectOptions>()
+                .unwrap()
+                .clone();
+
             match world.get_resource::<RestartTaskHandle>() {
                 None => {
                     let (tx, rx) = crossbeam_channel::bounded::<NewMqttClient>(1);
@@ -178,17 +181,23 @@ mod system {
 
                     let handle = {
                         let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
-                        let opts = world.get_resource::<ClientCreateOptions>().unwrap().clone();
+                        let create_opts =
+                            world.get_resource::<ClientCreateOptions>().unwrap().clone();
+                        let Subscriptions(subscriptions) =
+                            world.get_resource::<Subscriptions>().unwrap();
 
-                        let create_opts = paho_mqtt::CreateOptions::from(&opts);
+                        let paho_subs = subscriptions.iter().map(|(t, q)| (*t, *q as i32)).unzip();
+                        let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
+                        let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
 
                         rt.spawn_background_task(move |_| async move {
-                            log::info!("restart mqtt client, reason: {reason}");
+                            log::trace!("restart mqtt client, reason: {reason}");
                             tx.send(NewMqttClient(
                                 make_client(
-                                    create_opts,
-                                    conn_opts(),
-                                    opts.incoming_msg_buffer_size,
+                                    paho_create_opts,
+                                    paho_conn_opts,
+                                    create_opts.incoming_msg_buffer_size,
+                                    paho_subs,
                                 )
                                 .await,
                             ))
@@ -223,8 +232,10 @@ mod system {
 
                             let ping_task = {
                                 let ping_client = client.clone();
-                                rt.spawn_background_task(|_| async move {
-                                    ping_task(ping_client, Duration::from_secs(1)).await;
+                                rt.spawn_background_task(move |_| async move {
+                                    if let Some(duration) = connect_opts.keep_alive_interval {
+                                        ping_task(ping_client, duration).await;
+                                    }
                                 })
                             };
 
@@ -626,6 +637,51 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
     }
 }
 
+#[derive(Clone, Resource, Default)]
+pub struct ClientConnectOptions {
+    pub clean_start: Option<bool>,
+    pub connect_timeout: Option<Duration>,
+    pub keep_alive_interval: Option<Duration>,
+    pub max_inflight: Option<i32>,
+    pub will_message: Option<(&'static str, Arc<[u8]>, Qos)>,
+}
+impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
+    fn from(value: &ClientConnectOptions) -> Self {
+        let ClientConnectOptions {
+            clean_start,
+            connect_timeout,
+            keep_alive_interval,
+            max_inflight,
+            will_message,
+        } = value;
+
+        let mut builder = paho_mqtt::ConnectOptionsBuilder::new();
+
+        if let Some(clean) = clean_start {
+            builder.clean_start(*clean);
+        }
+
+        if let Some(timeout) = connect_timeout {
+            builder.connect_timeout(*timeout);
+        }
+
+        if let Some(keep_alive_interval) = keep_alive_interval {
+            builder.keep_alive_interval(*keep_alive_interval);
+        }
+
+        if let Some(max_inflight) = max_inflight {
+            builder.max_inflight(*max_inflight);
+        }
+
+        if let Some((topic, payload, qos)) = will_message {
+            let will = paho_mqtt::Message::new(*topic, payload.as_ref(), *qos as i32);
+            builder.will_message(will);
+        }
+
+        builder.finalize()
+    }
+}
+
 #[derive(Resource)]
 pub struct MqttClient {
     inner_client: paho_mqtt::AsyncClient,
@@ -636,6 +692,7 @@ pub struct MqttClient {
 #[derive(Debug, Resource)]
 struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttMessage>);
 
+#[allow(unused)]
 #[derive(Debug, Resource)]
 struct Subscriptions(Vec<(&'static str, Qos)>);
 

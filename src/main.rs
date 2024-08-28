@@ -34,8 +34,8 @@ fn main() -> anyhow::Result<()> {
             TokioTasksPlugin::default(),
         ))
         .add_plugins((mqtt::MqttPlugin {
-            // initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
-            initial_subscriptions: &[],
+            initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
+            // initial_subscriptions: &[],
             client_create_options: mqtt::ClientCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
@@ -43,12 +43,17 @@ fn main() -> anyhow::Result<()> {
                 persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
                 ..Default::default()
             },
+            client_connect_options: mqtt::ClientConnectOptions {
+                clean_start: Some(false),
+                keep_alive_interval: Some(Duration::from_secs(1)),
+                ..Default::default()
+            },
         },))
         .add_systems(Startup, exit_task)
         .add_systems(
             Update,
             (
-                control.run_if(on_timer(Duration::from_secs(1))),
+                control,
                 log_mqtt_msg,
                 publish.run_if(on_timer(Duration::from_secs_f32(1.0))),
             ),
@@ -72,7 +77,7 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
 
 fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
     while let Some(mqtt::event::MqttMessage(msg)) = ev_reader.read().next() {
-        log::info!("mqtt msg: {}", msg);
+        log::debug!("mqtt msg: {}", msg);
     }
 }
 
@@ -95,5 +100,5 @@ fn publish(mut cmd: Commands, mut counter: ResMut<Counter>) {
 }
 
 fn control() {
-    log::info!("update control");
+    log::trace!("update control");
 }
