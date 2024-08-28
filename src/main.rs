@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     helper::init_logging();
 
     let mut path = std::env::current_dir().unwrap();
-    path.push("cache");
+    path.push("temp");
     path.push("paho");
 
     App::new()
@@ -33,9 +33,8 @@ fn main() -> anyhow::Result<()> {
             ))),
             TokioTasksPlugin::default(),
         ))
-        .add_plugins((mqtt::MqttPlugin {
-            initial_subscriptions: &[("data/#", mqtt::Qos::_0)],
-            // initial_subscriptions: &[],
+        .add_plugins(mqtt::MqttPlugin {
+            // initial_subscriptions: Some(&[("data/#", mqtt::Qos::_0)]),
             client_create_options: mqtt::ClientCreateOptions {
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
@@ -48,7 +47,8 @@ fn main() -> anyhow::Result<()> {
                 keep_alive_interval: Some(Duration::from_secs(1)),
                 ..Default::default()
             },
-        },))
+            ..Default::default()
+        })
         .add_systems(Startup, exit_task)
         .add_systems(
             Update,

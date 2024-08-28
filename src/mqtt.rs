@@ -22,7 +22,7 @@ use tracing as log;
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: &'static [(&'static str, Qos)],
+    pub initial_subscriptions: Option<&'static [(&'static str, Qos)]>,
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -32,12 +32,16 @@ impl Plugin for MqttPlugin {
         let Self {
             client_create_options,
             client_connect_options,
-            initial_subscriptions: subscriptions,
+            initial_subscriptions,
         } = self;
+
+        let subs = initial_subscriptions
+            .map(|s| s.to_vec())
+            .unwrap_or_default();
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(Subscriptions(subscriptions.to_vec()))
+            .insert_resource(Subscriptions(subs))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id,
@@ -115,7 +119,7 @@ mod system {
             create_opts: paho_mqtt::CreateOptions,
             conn_opts: paho_mqtt::ConnectOptions,
             stream_size: usize,
-            (topics, qos): (Vec<&str>, Vec<i32>),
+            sub_info: Option<(Vec<&str>, Vec<i32>)>,
         ) -> Result<
             (
                 paho_mqtt::AsyncClient,
@@ -136,7 +140,10 @@ mod system {
 
             let strm = client.get_stream(stream_size);
             client.connect(conn_opts).await?;
-            client.subscribe_many(&topics, &qos).await?;
+
+            if let Some((topics, qos)) = sub_info {
+                client.subscribe_many(&topics, &qos).await?;
+            }
 
             Ok((client, strm))
         }
@@ -186,9 +193,13 @@ mod system {
                         let Subscriptions(subscriptions) =
                             world.get_resource::<Subscriptions>().unwrap();
 
-                        let paho_subs = subscriptions.iter().map(|(t, q)| (*t, *q as i32)).unzip();
                         let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
                         let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
+                        let paho_subs = if !subscriptions.is_empty() {
+                            Some(subscriptions.iter().map(|(t, q)| (*t, *q as i32)).unzip())
+                        } else {
+                            None
+                        };
 
                         rt.spawn_background_task(move |_| async move {
                             log::trace!("restart mqtt client, reason: {reason}");
@@ -542,18 +553,15 @@ pub struct ClientCreateOptions {
 impl Default for ClientCreateOptions {
     fn default() -> Self {
         let mut cache_dir_path = std::env::current_dir().unwrap();
-        cache_dir_path.push("cache");
-
-        let mut persist_path = cache_dir_path.clone();
-        persist_path.push("paho");
+        cache_dir_path.push("temp");
 
         Self {
             server_uri: "mqtt://test.mosquitto.org",
             client_id: Default::default(),
             incoming_msg_buffer_size: 25,
             cache_dir_path,
-            persistence_type: Some(PersistenceType::FilePath(persist_path)),
 
+            persistence_type: Default::default(),
             max_buffered_messages: Default::default(),
             send_while_disconnected: Default::default(),
             allow_disconnected_send_at_anytime: Default::default(),
