@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
         .add_plugins(mqtt::MqttPlugin {
             // initial_subscriptions: Some(&[("data/#", mqtt::Qos::_0)]),
             client_create_options: mqtt::ClientCreateOptions {
+                restart_interval: Duration::from_secs(5),
                 server_uri: "mqtt://test.mosquitto.org",
                 client_id: "triponics-test-1",
                 incoming_msg_buffer_size: 100,

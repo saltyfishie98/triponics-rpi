@@ -10,6 +10,7 @@ use bevy_ecs::{
     schedule::IntoSystemConfigs,
     system::{Query, Res, Resource},
 };
+use bevy_internal::time::Timer;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
@@ -53,7 +54,8 @@ impl Plugin for MqttPlugin {
                 Update,
                 (
                     system::restart_client,
-                    system::publish_offline_cache.after(system::restart_client),
+                    system::publish_offline_cache //
+                        .after(system::restart_client),
                     system::publish_message
                         .after(system::restart_client)
                         .after(system::publish_offline_cache),
@@ -68,8 +70,9 @@ mod system {
     use bevy_ecs::entity::Entity;
     use bevy_ecs::event::EventWriter;
     use bevy_ecs::query::With;
-    use bevy_ecs::system::{Commands, ResMut};
+    use bevy_ecs::system::{Commands, Local, ResMut};
     use bevy_ecs::world::World;
+    use bevy_internal::time::Time;
 
     use super::component;
     use super::*;
@@ -77,7 +80,10 @@ mod system {
     pub fn restart_client(
         mut cmd: Commands,
         mut ev: EventReader<event::RestartClient>,
+        mut restart_timer: Local<Option<Timer>>,
+        time: Res<Time>,
         client: Option<Res<MqttClient>>,
+        create_opts: Res<ClientCreateOptions>,
     ) {
         async fn mqtt_recv_task(
             mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttMessage>,
@@ -155,11 +161,15 @@ mod system {
         let reason = Box::new(ev.read().next().unwrap().0);
         ev.clear();
 
-        if let Some(client) = client {
-            if client.inner_client.is_connected() {
-                log::debug!("mqtt client already connected");
-                return;
-            }
+        let timer = restart_timer.clone();
+
+        if let Some(r_timer) = restart_timer.as_mut() {
+            r_timer.tick(time.delta());
+        } else if client.is_some() {
+            restart_timer.replace(Timer::new(
+                create_opts.restart_interval,
+                bevy_internal::time::TimerMode::Repeating,
+            ));
         }
 
         cmd.add(|world: &mut World| {
@@ -183,6 +193,12 @@ mod system {
 
             match world.get_resource::<RestartTaskHandle>() {
                 None => {
+                    if let Some(timer) = timer {
+                        if !timer.just_finished() {
+                            return;
+                        }
+                    }
+
                     let (tx, rx) = crossbeam_channel::bounded::<NewMqttClient>(1);
                     world.insert_resource(NewMqttClientRecv(rx));
 
@@ -202,7 +218,7 @@ mod system {
                         };
 
                         rt.spawn_background_task(move |_| async move {
-                            log::trace!("restart mqtt client, reason: {reason}");
+                            log::debug!("mqtt client restart triggered, reason: {reason}");
                             tx.send(NewMqttClient(
                                 make_client(
                                     paho_create_opts,
@@ -213,6 +229,7 @@ mod system {
                                 .await,
                             ))
                             .unwrap();
+
                             loop {
                                 tokio::task::yield_now().await;
                             }
@@ -225,10 +242,12 @@ mod system {
                     let NewMqttClientRecv(rx) = world.get_resource::<NewMqttClientRecv>().unwrap();
 
                     match rx.try_recv() {
-                        Err(crossbeam_channel::TryRecvError::Disconnected) => panic!(),
                         Err(crossbeam_channel::TryRecvError::Empty) => {
                             log::trace!("mqtt client restarting...");
                             return;
+                        }
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            log::error!("can't received new mqtt client");
                         }
                         Ok(NewMqttClient(Ok((client, stream)))) => {
                             let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
@@ -325,7 +344,7 @@ mod system {
             ),
         ) {
             rt.spawn_background_task(move |_| async move {
-                log::debug!("received -> {msg:?}");
+                log::debug!("staged -> {msg:?}");
                 match maybe_client {
                     Some(client) => match client.try_publish(msg.clone().into()) {
                         Ok(o) => {
@@ -549,6 +568,7 @@ pub struct ClientCreateOptions {
     pub delete_oldest_messages: Option<bool>,
     pub restore_messages: Option<bool>,
     pub persist_qos0: Option<bool>,
+    pub restart_interval: Duration,
 }
 impl Default for ClientCreateOptions {
     fn default() -> Self {
@@ -560,6 +580,7 @@ impl Default for ClientCreateOptions {
             client_id: Default::default(),
             incoming_msg_buffer_size: 25,
             cache_dir_path,
+            restart_interval: Duration::from_secs(5),
 
             persistence_type: Default::default(),
             max_buffered_messages: Default::default(),
@@ -593,6 +614,7 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
             persist_qos0,
             incoming_msg_buffer_size: _,
             cache_dir_path: _,
+            restart_interval: _,
         } = value;
 
         let builder = paho_mqtt::CreateOptionsBuilder::new()
