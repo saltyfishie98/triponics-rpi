@@ -40,26 +40,28 @@ fn main() -> anyhow::Result<()> {
             ))),
             TokioTasksPlugin::default(),
         ))
-        .add_plugins(publish_state::StatePublishPlugin {
-            publish_interval: Duration::from_secs(1),
-        })
-        .add_plugins(mqtt::MqttPlugin {
-            client_create_options: mqtt::ClientCreateOptions {
-                restart_interval: Duration::from_secs(5),
-                server_uri: "mqtt://test.mosquitto.org",
-                client_id: "triponics-test-1",
-                incoming_msg_buffer_size: 100,
-                max_buffered_messages: Some(5000),
-                persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
+        .add_plugins((
+            mqtt::MqttPlugin {
+                client_create_options: mqtt::ClientCreateOptions {
+                    restart_interval: Duration::from_secs(5),
+                    server_uri: "mqtt://test.mosquitto.org",
+                    client_id: "triponics-test-1",
+                    incoming_msg_buffer_size: 100,
+                    max_buffered_messages: Some(5000),
+                    persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
+                    ..Default::default()
+                },
+                client_connect_options: mqtt::ClientConnectOptions {
+                    clean_start: Some(false),
+                    keep_alive_interval: Some(Duration::from_secs(1)),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            client_connect_options: mqtt::ClientConnectOptions {
-                clean_start: Some(false),
-                keep_alive_interval: Some(Duration::from_secs(1)),
-                ..Default::default()
+            publish_state::StatePublishPlugin {
+                publish_interval: Duration::from_secs(1),
             },
-            ..Default::default()
-        })
+        ))
         .insert_resource(Counter(0))
         .add_systems(Startup, exit_task)
         .add_systems(Update, (control, log_mqtt_msg))
@@ -88,6 +90,6 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 
 fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     log::trace!("update control");
-    cmd.spawn(publish_state::UpdatePublishState::new(counter.clone()));
+    cmd.spawn(publish_state::UpdateState::new(counter.clone()));
     counter.0 += 1;
 }

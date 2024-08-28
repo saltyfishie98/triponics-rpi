@@ -6,11 +6,14 @@ use std::{
 
 use bevy_app::{Plugin, Update};
 use bevy_ecs::{
-    event::EventReader,
+    entity::Entity,
+    event::{EventReader, EventWriter},
+    query::With,
     schedule::IntoSystemConfigs,
-    system::{Query, Res, Resource},
+    system::{Commands, Local, Query, Res, ResMut, Resource},
+    world::World,
 };
-use bevy_internal::time::Timer;
+use bevy_internal::time::{Time, Timer};
 use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
@@ -25,59 +28,8 @@ pub struct MqttPlugin {
     pub client_connect_options: ClientConnectOptions,
     pub initial_subscriptions: Option<&'static [(&'static str, Qos)]>,
 }
-impl Plugin for MqttPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
-            std::sync::mpsc::channel::<event::MqttMessage>();
-
-        let Self {
-            client_create_options,
-            client_connect_options,
-            initial_subscriptions,
-        } = self;
-
-        let subs = initial_subscriptions
-            .map(|s| s.to_vec())
-            .unwrap_or_default();
-
-        app.insert_resource(client_create_options.clone())
-            .insert_resource(client_connect_options.clone())
-            .insert_resource(Subscriptions(subs))
-            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
-            .insert_resource(MqttCacheManager::new(
-                client_create_options.client_id,
-                client_create_options.cache_dir_path.as_path(),
-            ))
-            .add_event::<event::RestartClient>()
-            .add_event_channel(mqtt_incoming_msg_rx)
-            .add_systems(
-                Update,
-                (
-                    system::restart_client,
-                    system::publish_offline_cache //
-                        .after(system::restart_client),
-                    system::publish_message
-                        .after(system::restart_client)
-                        .after(system::publish_offline_cache),
-                ),
-            )
-            .world_mut()
-            .send_event(event::RestartClient("initial restart"));
-    }
-}
-
-mod system {
-    use bevy_ecs::entity::Entity;
-    use bevy_ecs::event::EventWriter;
-    use bevy_ecs::query::With;
-    use bevy_ecs::system::{Commands, Local, ResMut};
-    use bevy_ecs::world::World;
-    use bevy_internal::time::Time;
-
-    use super::component;
-    use super::*;
-
-    pub fn restart_client(
+impl MqttPlugin {
+    fn restart_client(
         mut cmd: Commands,
         mut ev: EventReader<event::RestartClient>,
         mut restart_timer: Local<Option<Timer>>,
@@ -292,7 +244,7 @@ mod system {
         });
     }
 
-    pub fn publish_offline_cache(
+    fn publish_offline_cache(
         mut cmd: Commands,
         mut restarter: EventWriter<event::RestartClient>,
         rt: Res<TokioTasksRuntime>,
@@ -327,7 +279,7 @@ mod system {
         }
     }
 
-    pub fn publish_message(
+    fn publish_message(
         mut cmd: Commands,
         mut query: Query<&mut component::PublishMsg>,
         rt: Res<TokioTasksRuntime>,
@@ -393,6 +345,46 @@ mod system {
         entt.iter().for_each(|entt| {
             cmd.entity(entt).remove::<component::PublishMsg>();
         });
+    }
+}
+impl Plugin for MqttPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
+            std::sync::mpsc::channel::<event::MqttMessage>();
+
+        let Self {
+            client_create_options,
+            client_connect_options,
+            initial_subscriptions,
+        } = self;
+
+        let subs = initial_subscriptions
+            .map(|s| s.to_vec())
+            .unwrap_or_default();
+
+        app.insert_resource(client_create_options.clone())
+            .insert_resource(client_connect_options.clone())
+            .insert_resource(Subscriptions(subs))
+            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
+            .insert_resource(MqttCacheManager::new(
+                client_create_options.client_id,
+                client_create_options.cache_dir_path.as_path(),
+            ))
+            .add_event::<event::RestartClient>()
+            .add_event_channel(mqtt_incoming_msg_rx)
+            .add_systems(
+                Update,
+                (
+                    Self::restart_client,
+                    Self::publish_offline_cache //
+                        .after(Self::restart_client),
+                    Self::publish_message
+                        .after(Self::restart_client)
+                        .after(Self::publish_offline_cache),
+                ),
+            )
+            .world_mut()
+            .send_event(event::RestartClient("initial restart"));
     }
 }
 

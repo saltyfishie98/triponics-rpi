@@ -29,20 +29,6 @@ impl Plugin for StatePublishPlugin {
     }
 }
 
-#[derive(Component)]
-pub struct UpdatePublishState {
-    id: std::any::TypeId,
-    data: Box<dyn PublishState + Send + Sync + 'static>,
-}
-impl UpdatePublishState {
-    pub fn new<T: PublishState + Send + Sync + 'static>(new_state: T) -> Self {
-        Self {
-            id: std::any::TypeId::of::<T>(),
-            data: Box::new(new_state),
-        }
-    }
-}
-
 #[derive(Resource)]
 struct StatePublishRegistry {
     hashmap: HashMap<std::any::TypeId, mqtt::component::PublishMsg>,
@@ -54,12 +40,12 @@ impl StatePublishRegistry {
         }
     }
 
-    fn update(mut cmd: Commands, entt: Query<Entity, With<UpdatePublishState>>) {
+    fn update(mut cmd: Commands, entt: Query<Entity, With<UpdateState>>) {
         entt.iter().for_each(|entt| {
             cmd.add(move |world: &mut World| {
-                let maybe_new_state = world.entity_mut(entt).take::<UpdatePublishState>();
+                let maybe_new_state = world.entity_mut(entt).take::<UpdateState>();
 
-                if let Some(UpdatePublishState { id, data }) = maybe_new_state {
+                if let Some(UpdateState { id, data }) = maybe_new_state {
                     let mut registry = world.get_resource_mut::<StatePublishRegistry>().unwrap();
                     registry.hashmap.insert(id, data.to_publish());
                 }
@@ -76,4 +62,18 @@ impl StatePublishRegistry {
 
 pub trait PublishState {
     fn to_publish(&self) -> mqtt::component::PublishMsg;
+}
+
+#[derive(Component)]
+pub struct UpdateState {
+    id: std::any::TypeId,
+    data: Box<dyn PublishState + Send + Sync + 'static>,
+}
+impl UpdateState {
+    pub fn new<T: PublishState + Send + Sync + 'static>(new_state: T) -> Self {
+        Self {
+            id: std::any::TypeId::of::<T>(),
+            data: Box::new(new_state),
+        }
+    }
 }
