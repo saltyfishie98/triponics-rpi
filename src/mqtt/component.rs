@@ -4,6 +4,9 @@ use bevy_ecs::component::Component;
 
 use super::Qos;
 
+#[derive(Component)]
+pub struct NewSubscriptions(pub &'static str, pub Qos);
+
 #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PublishMsg {
     #[serde(

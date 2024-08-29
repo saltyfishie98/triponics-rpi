@@ -55,7 +55,7 @@ impl Plugin for MqttPlugin {
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(Subscriptions(subs))
+            .insert_resource(MqttSubscriptions(subs))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id,
@@ -66,6 +66,7 @@ impl Plugin for MqttPlugin {
             .add_systems(
                 Update,
                 (
+                    Self::update_subscriptions,
                     Self::restart_client,
                     Self::publish_offline_cache //
                         .after(Self::restart_client),
@@ -151,6 +152,7 @@ impl MqttPlugin {
 
             if let Some((topics, qos)) = sub_info {
                 client.subscribe_many(&topics, &qos).await?;
+                log::info!("subscribed to mqtt topics: {topics:?}");
             }
 
             Ok((client, strm))
@@ -208,8 +210,8 @@ impl MqttPlugin {
                         let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
                         let create_opts =
                             world.get_resource::<ClientCreateOptions>().unwrap().clone();
-                        let Subscriptions(subscriptions) =
-                            world.get_resource::<Subscriptions>().unwrap();
+                        let MqttSubscriptions(subscriptions) =
+                            world.get_resource::<MqttSubscriptions>().unwrap();
 
                         let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
                         let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
@@ -396,6 +398,44 @@ impl MqttPlugin {
             cmd.entity(entt).remove::<component::PublishMsg>();
         });
     }
+
+    fn update_subscriptions(
+        mut cmd: Commands,
+        entt: Query<Entity, With<component::NewSubscriptions>>,
+        client: Option<Res<MqttClient>>,
+    ) {
+        if client.is_none() {
+            return;
+        }
+
+        entt.iter().for_each(|entt| {
+            cmd.add(move |world: &mut World| {
+                if let Some(component::NewSubscriptions(topic, qos)) =
+                    world.entity_mut(entt).take::<component::NewSubscriptions>()
+                {
+                    if let Some(client) = world.get_resource::<MqttClient>() {
+                        let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
+
+                        let handle = client.inner_client.subscribe(topic, qos as i32);
+
+                        rt.spawn_background_task(move |mut ctx| async move {
+                            if let Err(e) = handle.await {
+                                log::warn!("failed to subscribe to '{topic}', reason: {e}");
+                            } else {
+                                ctx.run_on_main_thread(move |ctx| {
+                                    let mut subs =
+                                        ctx.world.get_resource_mut::<MqttSubscriptions>().unwrap();
+                                    subs.0.push((topic, qos));
+                                    log::info!("subscribed to topic '{topic}'");
+                                })
+                                .await;
+                            }
+                        });
+                    }
+                }
+            });
+        });
+    }
 }
 
 #[derive(Debug, Resource)]
@@ -474,7 +514,7 @@ struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttSubsMessage>);
 
 #[allow(unused)]
 #[derive(Debug, Resource)]
-struct Subscriptions(Vec<(&'static str, Qos)>);
+struct MqttSubscriptions(Vec<(&'static str, Qos)>);
 
 #[derive(Debug, Resource)]
 struct RestartTaskHandle(tokio::task::JoinHandle<()>);

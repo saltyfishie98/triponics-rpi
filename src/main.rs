@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
             },
         ))
         .insert_resource(Counter::new(0))
-        .add_systems(Startup, exit_task)
+        .add_systems(Startup, (exit_task, test_subscription))
         .add_systems(Update, (control, log_mqtt_msg))
         .run();
 
@@ -89,6 +89,13 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         })
         .await;
     });
+}
+
+fn test_subscription(mut cmd: Commands) {
+    cmd.spawn(mqtt::component::NewSubscriptions(
+        "testing/#",
+        mqtt::Qos::_1,
+    ));
 }
 
 fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttSubsMessage>) {
