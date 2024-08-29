@@ -16,13 +16,20 @@ use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use tracing as log;
 
 #[derive(bevy_ecs::system::Resource, Clone, serde::Serialize)]
-struct Counter(u32);
+struct Counter {
+    data: u32,
+}
+impl Counter {
+    fn new(data: u32) -> Self {
+        Self { data }
+    }
+}
 impl publish_state::PublishState for Counter {
     fn to_publish(&self) -> mqtt::component::PublishMsg {
         let mut payload = Vec::new();
         serde_json::to_writer(&mut payload, self).unwrap();
 
-        mqtt::component::PublishMsg::new("aaa/counter", &payload, mqtt::Qos::_1)
+        mqtt::component::PublishMsg::new("saltyfishie/counter", &payload, mqtt::Qos::_1)
     }
 }
 
@@ -62,7 +69,7 @@ fn main() -> anyhow::Result<()> {
                 publish_interval: Duration::from_secs(1),
             },
         ))
-        .insert_resource(Counter(0))
+        .insert_resource(Counter::new(0))
         .add_systems(Startup, exit_task)
         .add_systems(Update, (control, log_mqtt_msg))
         .run();
@@ -91,5 +98,5 @@ fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
 fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     log::trace!("update control");
     cmd.spawn(publish_state::UpdateState::new(counter.clone()));
-    counter.0 += 1;
+    counter.data += 1;
 }

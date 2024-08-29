@@ -424,7 +424,8 @@ pub mod component {
                 .field("topic", &self.topic)
                 .field(
                     "payload",
-                    &String::from_utf8(self.payload.as_ref().into()).unwrap(),
+                    &String::from_utf8(self.payload.as_ref().into())
+                        .unwrap_or("INVALID UTF-8".into()),
                 )
                 .field("qos", &self.qos)
                 .finish()
