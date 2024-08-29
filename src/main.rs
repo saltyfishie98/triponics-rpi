@@ -1,6 +1,5 @@
 mod helper;
 mod mqtt;
-mod publish_state;
 
 use std::time::Duration;
 
@@ -24,7 +23,7 @@ impl Counter {
         Self { data }
     }
 }
-impl publish_state::PublishState for Counter {
+impl mqtt::add_on::publish_state::StatePublisher for Counter {
     fn to_publish(&self) -> mqtt::component::PublishMsg {
         let mut payload = Vec::new();
         serde_json::to_writer(&mut payload, self).unwrap();
@@ -36,9 +35,11 @@ impl publish_state::PublishState for Counter {
 fn main() -> anyhow::Result<()> {
     helper::init_logging();
 
-    let mut path = std::env::current_dir().unwrap();
-    path.push("temp");
-    path.push("paho");
+    let mut cache_dir_path = std::env::current_dir().unwrap();
+    cache_dir_path.push("temp");
+
+    let mut persist_path = cache_dir_path.clone();
+    persist_path.push("paho");
 
     App::new()
         .add_plugins((
@@ -55,7 +56,8 @@ fn main() -> anyhow::Result<()> {
                     client_id: "triponics-test-1",
                     incoming_msg_buffer_size: 100,
                     max_buffered_messages: Some(5000),
-                    persistence_type: Some(mqtt::PersistenceType::FilePath(path)),
+                    persistence_type: Some(mqtt::PersistenceType::FilePath(persist_path)),
+                    cache_dir_path,
                     ..Default::default()
                 },
                 client_connect_options: mqtt::ClientConnectOptions {
@@ -65,7 +67,7 @@ fn main() -> anyhow::Result<()> {
                 },
                 ..Default::default()
             },
-            publish_state::StatePublishPlugin {
+            mqtt::add_on::PublishStatePlugin {
                 publish_interval: Duration::from_secs(1),
             },
         ))
@@ -89,14 +91,16 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
     });
 }
 
-fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttMessage>) {
-    while let Some(mqtt::event::MqttMessage(msg)) = ev_reader.read().next() {
+fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttSubsMessage>) {
+    while let Some(mqtt::event::MqttSubsMessage(msg)) = ev_reader.read().next() {
         log::debug!("mqtt msg: {}", msg);
     }
 }
 
 fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     log::trace!("update control");
-    cmd.spawn(publish_state::UpdateState::new(counter.clone()));
+    cmd.spawn(mqtt::add_on::publish_state::UpdateState::new(
+        counter.clone(),
+    ));
     counter.data += 1;
 }

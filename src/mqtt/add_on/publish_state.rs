@@ -11,12 +11,12 @@ use bevy_ecs::{
 };
 use bevy_internal::{time::common_conditions::on_timer, utils::HashMap};
 
-use crate::mqtt;
+use crate::mqtt::component;
 
-pub struct StatePublishPlugin {
+pub struct PublishStatePlugin {
     pub publish_interval: Duration,
 }
-impl Plugin for StatePublishPlugin {
+impl Plugin for PublishStatePlugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.insert_resource(StatePublishRegistry::new())
             .add_systems(
@@ -29,9 +29,27 @@ impl Plugin for StatePublishPlugin {
     }
 }
 
+#[derive(Component)]
+pub struct UpdateState {
+    pub(super) id: std::any::TypeId,
+    pub(super) data: Box<dyn StatePublisher + Send + Sync + 'static>,
+}
+impl UpdateState {
+    pub fn new<T: StatePublisher + Send + Sync + 'static>(new_state: T) -> Self {
+        Self {
+            id: std::any::TypeId::of::<T>(),
+            data: Box::new(new_state),
+        }
+    }
+}
+
+pub trait StatePublisher {
+    fn to_publish(&self) -> component::PublishMsg;
+}
+
 #[derive(Resource)]
 struct StatePublishRegistry {
-    hashmap: HashMap<std::any::TypeId, mqtt::component::PublishMsg>,
+    hashmap: HashMap<std::any::TypeId, component::PublishMsg>,
 }
 impl StatePublishRegistry {
     fn new() -> Self {
@@ -57,23 +75,5 @@ impl StatePublishRegistry {
         registry.hashmap.iter().for_each(|(_, msg)| {
             cmd.spawn(msg.clone());
         });
-    }
-}
-
-pub trait PublishState {
-    fn to_publish(&self) -> mqtt::component::PublishMsg;
-}
-
-#[derive(Component)]
-pub struct UpdateState {
-    id: std::any::TypeId,
-    data: Box<dyn PublishState + Send + Sync + 'static>,
-}
-impl UpdateState {
-    pub fn new<T: PublishState + Send + Sync + 'static>(new_state: T) -> Self {
-        Self {
-            id: std::any::TypeId::of::<T>(),
-            data: Box::new(new_state),
-        }
     }
 }

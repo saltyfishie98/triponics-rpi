@@ -1,6 +1,16 @@
+pub mod add_on;
+pub mod component;
+pub mod event;
+
+mod options;
+pub use options::*;
+
+mod wrapper;
+pub use wrapper::*;
+
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -28,6 +38,46 @@ pub struct MqttPlugin {
     pub client_connect_options: ClientConnectOptions,
     pub initial_subscriptions: Option<&'static [(&'static str, Qos)]>,
 }
+impl Plugin for MqttPlugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
+            std::sync::mpsc::channel::<event::MqttSubsMessage>();
+
+        let Self {
+            client_create_options,
+            client_connect_options,
+            initial_subscriptions,
+        } = self;
+
+        let subs = initial_subscriptions
+            .map(|s| s.to_vec())
+            .unwrap_or_default();
+
+        app.insert_resource(client_create_options.clone())
+            .insert_resource(client_connect_options.clone())
+            .insert_resource(Subscriptions(subs))
+            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
+            .insert_resource(MqttCacheManager::new(
+                client_create_options.client_id,
+                client_create_options.cache_dir_path.as_path(),
+            ))
+            .add_event::<event::RestartClient>()
+            .add_event_channel(mqtt_incoming_msg_rx)
+            .add_systems(
+                Update,
+                (
+                    Self::restart_client,
+                    Self::publish_offline_cache //
+                        .after(Self::restart_client),
+                    Self::publish_message
+                        .after(Self::restart_client)
+                        .after(Self::publish_offline_cache),
+                ),
+            )
+            .world_mut()
+            .send_event(event::RestartClient("initial restart"));
+    }
+}
 impl MqttPlugin {
     fn restart_client(
         mut cmd: Commands,
@@ -38,7 +88,7 @@ impl MqttPlugin {
         create_opts: Res<ClientCreateOptions>,
     ) {
         async fn mqtt_recv_task(
-            mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttMessage>,
+            mqtt_msg_tx: std::sync::mpsc::Sender<event::MqttSubsMessage>,
             mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
         ) {
             log::debug!("started recv task!");
@@ -47,7 +97,7 @@ impl MqttPlugin {
                 match msg {
                     Some(msg) => {
                         log::trace!("polled mqtt msg");
-                        if let Err(e) = mqtt_msg_tx.send(event::MqttMessage(msg)) {
+                        if let Err(e) = mqtt_msg_tx.send(event::MqttSubsMessage(msg)) {
                             log::warn!("{e}");
                         }
                     }
@@ -347,111 +397,6 @@ impl MqttPlugin {
         });
     }
 }
-impl Plugin for MqttPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
-            std::sync::mpsc::channel::<event::MqttMessage>();
-
-        let Self {
-            client_create_options,
-            client_connect_options,
-            initial_subscriptions,
-        } = self;
-
-        let subs = initial_subscriptions
-            .map(|s| s.to_vec())
-            .unwrap_or_default();
-
-        app.insert_resource(client_create_options.clone())
-            .insert_resource(client_connect_options.clone())
-            .insert_resource(Subscriptions(subs))
-            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
-            .insert_resource(MqttCacheManager::new(
-                client_create_options.client_id,
-                client_create_options.cache_dir_path.as_path(),
-            ))
-            .add_event::<event::RestartClient>()
-            .add_event_channel(mqtt_incoming_msg_rx)
-            .add_systems(
-                Update,
-                (
-                    Self::restart_client,
-                    Self::publish_offline_cache //
-                        .after(Self::restart_client),
-                    Self::publish_message
-                        .after(Self::restart_client)
-                        .after(Self::publish_offline_cache),
-                ),
-            )
-            .world_mut()
-            .send_event(event::RestartClient("initial restart"));
-    }
-}
-
-pub mod component {
-    use std::sync::Arc;
-
-    use bevy_ecs::component::Component;
-
-    use super::Qos;
-
-    #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
-    pub struct PublishMsg {
-        #[serde(
-            serialize_with = "crate::helper::serialize_arc_str",
-            deserialize_with = "crate::helper::deserialize_arc_str"
-        )]
-        pub(super) topic: Arc<str>,
-        #[serde(
-            serialize_with = "crate::helper::serialize_arc_bytes",
-            deserialize_with = "crate::helper::deserialize_arc_bytes"
-        )]
-        pub(super) payload: Arc<[u8]>,
-        pub(super) qos: Qos,
-    }
-    impl PublishMsg {
-        pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
-            Self {
-                topic: topic.as_ref().into(),
-                payload: payload.as_ref().into(),
-                qos,
-            }
-        }
-    }
-    impl std::fmt::Debug for PublishMsg {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("PublishMsg")
-                .field("topic", &self.topic)
-                .field(
-                    "payload",
-                    &String::from_utf8(self.payload.as_ref().into())
-                        .unwrap_or("INVALID UTF-8".into()),
-                )
-                .field("qos", &self.qos)
-                .finish()
-        }
-    }
-    impl From<PublishMsg> for paho_mqtt::Message {
-        fn from(value: PublishMsg) -> Self {
-            let PublishMsg {
-                topic,
-                payload,
-                qos,
-            } = value;
-            Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
-        }
-    }
-}
-
-pub mod event {
-    use bevy_ecs::event::Event;
-
-    #[derive(Debug, Event)]
-    pub struct RestartClient(pub &'static str);
-
-    #[derive(Debug, Event)]
-    pub struct MqttMessage(pub paho_mqtt::Message);
-}
 
 #[derive(Debug, Resource)]
 struct MqttCacheManager {
@@ -464,7 +409,7 @@ impl MqttCacheManager {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 
         let conn = rusqlite::Connection::open(path).unwrap();
-        conn.execute(include_str!("sql/create_table.sql"), ())
+        conn.execute(include_str!("../sql/create_table.sql"), ())
             .unwrap();
 
         static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
@@ -482,7 +427,7 @@ impl MqttCacheManager {
         let msg_1 = msg.clone();
         let out = Ok(conn
             .execute(
-                include_str!("sql/add_data.sql"),
+                include_str!("../sql/add_data.sql"),
                 (
                     time::OffsetDateTime::now_utc().unix_timestamp(),
                     postcard::to_allocvec(msg)?,
@@ -500,7 +445,7 @@ impl MqttCacheManager {
     ) -> anyhow::Result<Vec<component::PublishMsg>> {
         let conn = conn.lock().await;
 
-        let mut stmt = conn.prepare(include_str!("sql/read_data.sql"))?;
+        let mut stmt = conn.prepare(include_str!("../sql/read_data.sql"))?;
         let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
 
         let out = rows
@@ -509,7 +454,7 @@ impl MqttCacheManager {
             })
             .collect::<Result<Vec<_>, _>>();
 
-        if let Err(e) = conn.execute(include_str!("sql/delete_data.sql"), [count]) {
+        if let Err(e) = conn.execute(include_str!("../sql/delete_data.sql"), [count]) {
             log::warn!("failed to delete cached data, reason {e}");
         }
 
@@ -517,203 +462,15 @@ impl MqttCacheManager {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[repr(i32)]
-pub enum Qos {
-    _0 = paho_mqtt::QOS_0,
-    _1 = paho_mqtt::QOS_1,
-    _2 = paho_mqtt::QOS_2,
-}
-
-#[derive(Clone)]
-pub enum PersistenceType {
-    /// Messages are persisted to files in a local directory (default).
-    File,
-    /// Messages are persisted to files under the specified directory.
-    FilePath(std::path::PathBuf),
-    /// No persistence is used.
-    None,
-    User(fn() -> Box<dyn paho_mqtt::ClientPersistence + Send>),
-}
-impl From<&PersistenceType> for paho_mqtt::PersistenceType {
-    fn from(value: &PersistenceType) -> Self {
-        match value {
-            PersistenceType::File => paho_mqtt::PersistenceType::File,
-            PersistenceType::FilePath(p) => paho_mqtt::PersistenceType::FilePath(p.clone()),
-            PersistenceType::None => paho_mqtt::PersistenceType::None,
-            PersistenceType::User(make_user_persist) => {
-                paho_mqtt::PersistenceType::User(Box::new(make_user_persist()))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Resource)]
-pub struct ClientCreateOptions {
-    pub server_uri: &'static str,
-    pub client_id: &'static str,
-    pub cache_dir_path: PathBuf,
-    pub incoming_msg_buffer_size: usize,
-    pub max_buffered_messages: Option<i32>,
-    pub persistence_type: Option<PersistenceType>,
-    pub send_while_disconnected: Option<bool>,
-    pub allow_disconnected_send_at_anytime: Option<bool>,
-    pub delete_oldest_messages: Option<bool>,
-    pub restore_messages: Option<bool>,
-    pub persist_qos0: Option<bool>,
-    pub restart_interval: Duration,
-}
-impl Default for ClientCreateOptions {
-    fn default() -> Self {
-        let mut cache_dir_path = std::env::current_dir().unwrap();
-        cache_dir_path.push("temp");
-
-        Self {
-            server_uri: "mqtt://test.mosquitto.org",
-            client_id: Default::default(),
-            incoming_msg_buffer_size: 25,
-            cache_dir_path,
-            restart_interval: Duration::from_secs(5),
-
-            persistence_type: Default::default(),
-            max_buffered_messages: Default::default(),
-            send_while_disconnected: Default::default(),
-            allow_disconnected_send_at_anytime: Default::default(),
-            delete_oldest_messages: Default::default(),
-            restore_messages: Default::default(),
-            persist_qos0: Default::default(),
-        }
-    }
-}
-impl From<&'static str> for ClientCreateOptions {
-    fn from(server_uri: &'static str) -> Self {
-        Self {
-            server_uri,
-            ..Default::default()
-        }
-    }
-}
-impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
-    fn from(value: &ClientCreateOptions) -> Self {
-        let ClientCreateOptions {
-            server_uri,
-            client_id,
-            max_buffered_messages,
-            persistence_type,
-            send_while_disconnected,
-            allow_disconnected_send_at_anytime,
-            delete_oldest_messages,
-            restore_messages,
-            persist_qos0,
-            incoming_msg_buffer_size: _,
-            cache_dir_path: _,
-            restart_interval: _,
-        } = value;
-
-        let builder = paho_mqtt::CreateOptionsBuilder::new()
-            .server_uri(*server_uri)
-            .client_id(*client_id);
-
-        let builder = if let Some(n) = *max_buffered_messages {
-            builder.max_buffered_messages(n)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(persist) = persistence_type {
-            builder.persistence(persist)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(on) = *send_while_disconnected {
-            builder.send_while_disconnected(on)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(allow) = *allow_disconnected_send_at_anytime {
-            builder.allow_disconnected_send_at_anytime(allow)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(delete_oldest) = *delete_oldest_messages {
-            builder.delete_oldest_messages(delete_oldest)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(restore) = *restore_messages {
-            builder.restore_messages(restore)
-        } else {
-            builder
-        };
-
-        let builder = if let Some(persist) = *persist_qos0 {
-            builder.persist_qos0(persist)
-        } else {
-            builder
-        };
-
-        builder.finalize()
-    }
-}
-
-#[derive(Clone, Resource, Default)]
-pub struct ClientConnectOptions {
-    pub clean_start: Option<bool>,
-    pub connect_timeout: Option<Duration>,
-    pub keep_alive_interval: Option<Duration>,
-    pub max_inflight: Option<i32>,
-    pub will_message: Option<(&'static str, Arc<[u8]>, Qos)>,
-}
-impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
-    fn from(value: &ClientConnectOptions) -> Self {
-        let ClientConnectOptions {
-            clean_start,
-            connect_timeout,
-            keep_alive_interval,
-            max_inflight,
-            will_message,
-        } = value;
-
-        let mut builder = paho_mqtt::ConnectOptionsBuilder::new();
-
-        if let Some(clean) = clean_start {
-            builder.clean_start(*clean);
-        }
-
-        if let Some(timeout) = connect_timeout {
-            builder.connect_timeout(*timeout);
-        }
-
-        if let Some(keep_alive_interval) = keep_alive_interval {
-            builder.keep_alive_interval(*keep_alive_interval);
-        }
-
-        if let Some(max_inflight) = max_inflight {
-            builder.max_inflight(*max_inflight);
-        }
-
-        if let Some((topic, payload, qos)) = will_message {
-            let will = paho_mqtt::Message::new(*topic, payload.as_ref(), *qos as i32);
-            builder.will_message(will);
-        }
-
-        builder.finalize()
-    }
-}
-
 #[derive(Resource)]
-pub struct MqttClient {
+struct MqttClient {
     inner_client: paho_mqtt::AsyncClient,
     recv_task: tokio::task::JoinHandle<()>,
     ping_task: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug, Resource)]
-struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttMessage>);
+struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttSubsMessage>);
 
 #[allow(unused)]
 #[derive(Debug, Resource)]
