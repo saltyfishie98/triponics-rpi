@@ -27,14 +27,14 @@ pub fn init_logging() {
     tracing::subscriber::set_global_default(subscriber.with(fmt)).unwrap();
 }
 
-pub fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
+fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     Ok(String::deserialize(deserializer)?.into())
 }
 
-pub fn serialize_arc_str<S>(v: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_arc_str<S>(v: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -53,6 +53,30 @@ where
     S: serde::Serializer,
 {
     serializer.serialize_bytes(v.as_ref())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default)]
+pub struct AtomicFixedString(
+    #[serde(
+        serialize_with = "serialize_arc_str",
+        deserialize_with = "deserialize_arc_str"
+    )]
+    Arc<str>,
+);
+impl From<&'static str> for AtomicFixedString {
+    fn from(value: &'static str) -> Self {
+        Self(value.into())
+    }
+}
+impl From<AtomicFixedString> for Arc<str> {
+    fn from(value: AtomicFixedString) -> Self {
+        value.0
+    }
+}
+impl AsRef<str> for AtomicFixedString {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
 }
 
 // This introduces event channels, on one side of which is mpsc::Sender<T>, and on another

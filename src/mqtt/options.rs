@@ -2,12 +2,14 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use bevy_ecs::system::Resource;
 
+use crate::helper::AtomicFixedString;
+
 use super::{PersistenceType, Qos};
 
 #[derive(Clone, Resource)]
 pub struct ClientCreateOptions {
-    pub server_uri: &'static str,
-    pub client_id: &'static str,
+    pub server_uri: AtomicFixedString,
+    pub client_id: AtomicFixedString,
     pub cache_dir_path: PathBuf,
     pub incoming_msg_buffer_size: usize,
     pub max_buffered_messages: Option<i32>,
@@ -25,7 +27,7 @@ impl Default for ClientCreateOptions {
         cache_dir_path.push("temp");
 
         Self {
-            server_uri: "mqtt://test.mosquitto.org",
+            server_uri: "mqtt://test.mosquitto.org".into(),
             client_id: Default::default(),
             incoming_msg_buffer_size: 25,
             cache_dir_path,
@@ -44,7 +46,7 @@ impl Default for ClientCreateOptions {
 impl From<&'static str> for ClientCreateOptions {
     fn from(server_uri: &'static str) -> Self {
         Self {
-            server_uri,
+            server_uri: server_uri.into(),
             ..Default::default()
         }
     }
@@ -66,9 +68,14 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
             restart_interval: _,
         } = value;
 
-        let builder = paho_mqtt::CreateOptionsBuilder::new()
-            .server_uri(*server_uri)
-            .client_id(*client_id);
+        let builder = {
+            let server_uri: Arc<str> = server_uri.clone().into();
+            let client_id: Arc<str> = client_id.clone().into();
+
+            paho_mqtt::CreateOptionsBuilder::new()
+                .server_uri(server_uri.to_string())
+                .client_id(client_id.to_string())
+        };
 
         let builder = if let Some(n) = *max_buffered_messages {
             builder.max_buffered_messages(n)

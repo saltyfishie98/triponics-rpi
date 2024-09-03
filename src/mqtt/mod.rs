@@ -29,7 +29,7 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::helper::AppExtensions;
+use crate::helper::{AppExtensions, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
@@ -59,8 +59,8 @@ impl Plugin for MqttPlugin {
             .insert_resource(MqttSubscriptions(subs))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
-                client_create_options.client_id,
-                client_create_options.cache_dir_path.as_path(),
+                client_create_options.client_id.clone(),
+                client_create_options.cache_dir_path.as_ref().unwrap(),
             ))
             .add_event::<event::RestartClient>()
             .add_event_channel(mqtt_incoming_msg_rx)
@@ -443,9 +443,9 @@ struct MqttCacheManager {
     connection: &'static Mutex<rusqlite::Connection>,
 }
 impl MqttCacheManager {
-    fn new(client_id: &'static str, path: &Path) -> Self {
+    fn new(client_id: AtomicFixedString, path: &Path) -> Self {
         let mut path = PathBuf::from(path);
-        path.push(format!("{client_id}.db3"));
+        path.push(format!("{}.db3", client_id.as_ref()));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 
         let conn = rusqlite::Connection::open(path).unwrap();

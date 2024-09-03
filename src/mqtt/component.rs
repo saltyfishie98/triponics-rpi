@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use bevy_ecs::component::Component;
 
+use crate::helper::AtomicFixedString;
+
 use super::Qos;
 
 #[derive(Component)]
@@ -9,11 +11,7 @@ pub struct NewSubscriptions(pub &'static str, pub Qos);
 
 #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PublishMsg {
-    #[serde(
-        serialize_with = "crate::helper::serialize_arc_str",
-        deserialize_with = "crate::helper::deserialize_arc_str"
-    )]
-    pub(super) topic: Arc<str>,
+    pub(super) topic: AtomicFixedString,
     #[serde(
         serialize_with = "crate::helper::serialize_arc_bytes",
         deserialize_with = "crate::helper::deserialize_arc_bytes"
@@ -22,9 +20,9 @@ pub struct PublishMsg {
     pub(super) qos: Qos,
 }
 impl PublishMsg {
-    pub fn new(topic: impl AsRef<str>, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
+    pub fn new(topic: &'static str, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
         Self {
-            topic: topic.as_ref().into(),
+            topic: topic.into(),
             payload: payload.as_ref().into(),
             qos,
         }
