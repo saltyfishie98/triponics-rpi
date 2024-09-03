@@ -6,7 +6,7 @@ pub enum Qos {
     _2 = paho_mqtt::QOS_2,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum PersistenceType {
     /// Messages are persisted to files in a local directory (default).
     File,
@@ -14,7 +14,6 @@ pub enum PersistenceType {
     FilePath(std::path::PathBuf),
     /// No persistence is used.
     None,
-    User(fn() -> Box<dyn paho_mqtt::ClientPersistence + Send>),
 }
 impl From<&PersistenceType> for paho_mqtt::PersistenceType {
     fn from(value: &PersistenceType) -> Self {
@@ -22,9 +21,6 @@ impl From<&PersistenceType> for paho_mqtt::PersistenceType {
             PersistenceType::File => paho_mqtt::PersistenceType::File,
             PersistenceType::FilePath(p) => paho_mqtt::PersistenceType::FilePath(p.clone()),
             PersistenceType::None => paho_mqtt::PersistenceType::None,
-            PersistenceType::User(make_user_persist) => {
-                paho_mqtt::PersistenceType::User(Box::new(make_user_persist()))
-            }
         }
     }
 }

@@ -1,3 +1,4 @@
+mod config;
 mod helper;
 mod mqtt;
 
@@ -35,11 +36,17 @@ impl mqtt::add_on::publish_state::StatePublisher for Counter {
 fn main() -> anyhow::Result<()> {
     helper::init_logging();
 
-    let mut cache_dir_path = std::env::current_dir().unwrap();
-    cache_dir_path.push("temp");
+    let config = config::AppConfig::load();
+    log::debug!("config:\n{config:#?}");
 
-    let mut persist_path = cache_dir_path.clone();
-    persist_path.push("paho");
+    let config::AppConfig {
+        mqtt:
+            config::app::mqtt::Config {
+                topic_source: _,
+                create_options: client_create_options,
+                connect_options: client_connect_options,
+            },
+    } = config;
 
     App::new()
         .add_plugins((
@@ -50,21 +57,9 @@ fn main() -> anyhow::Result<()> {
         ))
         .add_plugins((
             mqtt::MqttPlugin {
-                client_create_options: mqtt::ClientCreateOptions {
-                    restart_interval: Duration::from_secs(5),
-                    server_uri: "10.42.0.1:1883".into(),
-                    client_id: "triponics-test-1".into(),
-                    max_buffered_messages: Some(5000),
-                    persistence_type: Some(mqtt::PersistenceType::FilePath(persist_path)),
-                    cache_dir_path,
-                    ..Default::default()
-                },
-                client_connect_options: mqtt::ClientConnectOptions {
-                    clean_start: Some(false),
-                    keep_alive_interval: Some(Duration::from_secs(1)),
-                    ..Default::default()
-                },
-                ..Default::default()
+                client_create_options,
+                client_connect_options,
+                initial_subscriptions: &[],
             },
             mqtt::add_on::PublishStatePlugin {
                 publish_interval: Duration::from_secs(1),

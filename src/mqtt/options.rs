@@ -1,17 +1,31 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use bevy_ecs::system::Resource;
+use serde_with::serde_as;
 
 use crate::helper::AtomicFixedString;
 
-use super::{PersistenceType, Qos};
+use super::PersistenceType;
 
-#[derive(Clone, Resource)]
+#[serde_with::serde_as]
+#[derive(Clone, Resource, serde::Deserialize, serde::Serialize, Debug)]
 pub struct ClientCreateOptions {
     pub server_uri: AtomicFixedString,
     pub client_id: AtomicFixedString,
-    pub cache_dir_path: PathBuf,
-    pub incoming_msg_buffer_size: usize,
+
+    #[serde(default = "ClientCreateOptions::default_cache_path")]
+    pub cache_dir_path: Option<PathBuf>,
+
+    #[serde(default = "ClientCreateOptions::default_incoming_msg_buffer_size")]
+    pub incoming_msg_buffer_size: Option<usize>,
+
+    #[serde(
+        alias = "restart_interval_ms",
+        default = "ClientCreateOptions::default_restart_interval"
+    )]
+    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
+    pub restart_interval: Option<Duration>,
+
     pub max_buffered_messages: Option<i32>,
     pub persistence_type: Option<PersistenceType>,
     pub send_while_disconnected: Option<bool>,
@@ -19,36 +33,21 @@ pub struct ClientCreateOptions {
     pub delete_oldest_messages: Option<bool>,
     pub restore_messages: Option<bool>,
     pub persist_qos0: Option<bool>,
-    pub restart_interval: Duration,
 }
-impl Default for ClientCreateOptions {
-    fn default() -> Self {
+impl ClientCreateOptions {
+    fn default_cache_path() -> Option<PathBuf> {
         let mut cache_dir_path = std::env::current_dir().unwrap();
-        cache_dir_path.push("temp");
-
-        Self {
-            server_uri: "mqtt://test.mosquitto.org".into(),
-            client_id: Default::default(),
-            incoming_msg_buffer_size: 25,
-            cache_dir_path,
-            restart_interval: Duration::from_secs(5),
-
-            persistence_type: Default::default(),
-            max_buffered_messages: Default::default(),
-            send_while_disconnected: Default::default(),
-            allow_disconnected_send_at_anytime: Default::default(),
-            delete_oldest_messages: Default::default(),
-            restore_messages: Default::default(),
-            persist_qos0: Default::default(),
-        }
+        cache_dir_path.push("data");
+        cache_dir_path.push("cache");
+        Some(cache_dir_path)
     }
-}
-impl From<&'static str> for ClientCreateOptions {
-    fn from(server_uri: &'static str) -> Self {
-        Self {
-            server_uri: server_uri.into(),
-            ..Default::default()
-        }
+
+    fn default_incoming_msg_buffer_size() -> Option<usize> {
+        Some(25)
+    }
+
+    fn default_restart_interval() -> Option<Duration> {
+        Some(Duration::from_secs(5))
     }
 }
 impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
@@ -123,13 +122,19 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
     }
 }
 
-#[derive(Clone, Resource, Default)]
+#[serde_with::serde_as]
+#[derive(Clone, Resource, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ClientConnectOptions {
     pub clean_start: Option<bool>,
-    pub connect_timeout: Option<Duration>,
-    pub keep_alive_interval: Option<Duration>,
     pub max_inflight: Option<i32>,
-    pub will_message: Option<(&'static str, Arc<[u8]>, Qos)>,
+
+    #[serde(alias = "connect_timeout_ms")]
+    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
+    pub connect_timeout: Option<Duration>,
+
+    #[serde(alias = "keep_alive_interval_ms")]
+    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
+    pub keep_alive_interval: Option<Duration>,
 }
 impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
     fn from(value: &ClientConnectOptions) -> Self {
@@ -138,7 +143,6 @@ impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
             connect_timeout,
             keep_alive_interval,
             max_inflight,
-            will_message,
         } = value;
 
         let mut builder = paho_mqtt::ConnectOptionsBuilder::new();
@@ -157,11 +161,6 @@ impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
 
         if let Some(max_inflight) = max_inflight {
             builder.max_inflight(*max_inflight);
-        }
-
-        if let Some((topic, payload, qos)) = will_message {
-            let will = paho_mqtt::Message::new(*topic, payload.as_ref(), *qos as i32);
-            builder.will_message(will);
         }
 
         builder.finalize()

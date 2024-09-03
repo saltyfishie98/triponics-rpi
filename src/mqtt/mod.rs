@@ -33,11 +33,11 @@ use crate::helper::{AppExtensions, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
-#[derive(Default)]
+// #[derive(Default)]
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: Option<&'static [(&'static str, Qos)]>,
+    pub initial_subscriptions: &'static [(&'static str, Qos)],
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -47,16 +47,12 @@ impl Plugin for MqttPlugin {
         let Self {
             client_create_options,
             client_connect_options,
-            initial_subscriptions,
+            initial_subscriptions: subs,
         } = self;
-
-        let subs = initial_subscriptions
-            .map(|s| s.to_vec())
-            .unwrap_or_default();
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(MqttSubscriptions(subs))
+            .insert_resource(MqttSubscriptions(subs.to_vec()))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id.clone(),
@@ -173,7 +169,7 @@ impl MqttPlugin {
             r_timer.tick(time.delta());
         } else if client.is_some() {
             restart_timer.replace(Timer::new(
-                create_opts.restart_interval,
+                create_opts.restart_interval.unwrap(),
                 bevy_internal::time::TimerMode::Repeating,
             ));
         }
@@ -229,7 +225,7 @@ impl MqttPlugin {
                                 make_client(
                                     paho_create_opts,
                                     paho_conn_opts,
-                                    create_opts.incoming_msg_buffer_size,
+                                    create_opts.incoming_msg_buffer_size.unwrap(),
                                     paho_subs,
                                 )
                                 .await,

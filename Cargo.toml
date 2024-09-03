@@ -30,3 +30,4 @@ bevy-tokio-tasks = "0.14.0"
 postcard = { version = "1.0.10", default-features = false, features = ["use-std"] }
 rusqlite = "0.32.1"
 crossbeam-channel = "0.5.13"
+serde_with = "3.9.0"
