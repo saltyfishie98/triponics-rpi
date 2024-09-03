@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
             mqtt::MqttPlugin {
                 client_create_options: mqtt::ClientCreateOptions {
                     restart_interval: Duration::from_secs(5),
-                    server_uri: "mqtt://test.mosquitto.org",
+                    server_uri: "10.42.0.1:1883",
                     client_id: "triponics-test-1",
                     incoming_msg_buffer_size: 100,
                     max_buffered_messages: Some(5000),

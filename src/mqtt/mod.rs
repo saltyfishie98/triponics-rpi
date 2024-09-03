@@ -18,6 +18,7 @@ use bevy_app::{Plugin, Update};
 use bevy_ecs::{
     entity::Entity,
     event::{EventReader, EventWriter},
+    prelude::on_event,
     query::With,
     schedule::IntoSystemConfigs,
     system::{Commands, Local, Query, Res, ResMut, Resource},
@@ -67,7 +68,8 @@ impl Plugin for MqttPlugin {
                 Update,
                 (
                     Self::update_subscriptions,
-                    Self::restart_client,
+                    Self::restart_client //
+                        .run_if(on_event::<event::RestartClient>()),
                     Self::publish_offline_cache //
                         .after(Self::restart_client),
                     Self::publish_message
@@ -256,12 +258,10 @@ impl MqttPlugin {
                         Ok(NewMqttClient(Ok((client, stream)))) => {
                             let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
                             let MqttIncommingMsgTx(tx) =
-                                world.get_resource::<MqttIncommingMsgTx>().unwrap();
-
-                            let mqtt_incoming_msg_queue = tx.clone();
+                                world.get_resource::<MqttIncommingMsgTx>().unwrap().clone();
 
                             let recv_task = rt.spawn_background_task(|_| async move {
-                                mqtt_recv_task(mqtt_incoming_msg_queue, stream).await;
+                                mqtt_recv_task(tx, stream).await;
                             });
 
                             let ping_task = {
@@ -509,7 +509,7 @@ struct MqttClient {
     ping_task: tokio::task::JoinHandle<()>,
 }
 
-#[derive(Debug, Resource)]
+#[derive(Debug, Resource, Clone)]
 struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttSubsMessage>);
 
 #[allow(unused)]
