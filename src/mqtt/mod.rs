@@ -3,6 +3,7 @@ pub mod component;
 pub mod event;
 
 mod options;
+use component::NewSubscriptions;
 pub use options::*;
 
 mod wrapper;
@@ -37,7 +38,7 @@ use tracing as log;
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: &'static [(&'static str, Qos)],
+    pub initial_subscriptions: Vec<NewSubscriptions>,
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -214,7 +215,12 @@ impl MqttPlugin {
                         let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
                         let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
                         let paho_subs = if !subscriptions.is_empty() {
-                            Some(subscriptions.iter().map(|(t, q)| (*t, *q as i32)).unzip())
+                            Some(
+                                subscriptions
+                                    .iter()
+                                    .map(|NewSubscriptions(t, q)| (*t, *q as i32))
+                                    .unzip(),
+                            )
                         } else {
                             None
                         };
@@ -406,12 +412,11 @@ impl MqttPlugin {
 
         entt.iter().for_each(|entt| {
             cmd.add(move |world: &mut World| {
-                if let Some(component::NewSubscriptions(topic, qos)) =
-                    world.entity_mut(entt).take::<component::NewSubscriptions>()
+                if let Some(new_sub) = world.entity_mut(entt).take::<component::NewSubscriptions>()
                 {
                     if let Some(client) = world.get_resource::<MqttClient>() {
+                        let NewSubscriptions(topic, qos) = new_sub;
                         let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
-
                         let handle = client.inner_client.subscribe(topic, qos as i32);
 
                         rt.spawn_background_task(move |mut ctx| async move {
@@ -421,7 +426,7 @@ impl MqttPlugin {
                                 ctx.run_on_main_thread(move |ctx| {
                                     let mut subs =
                                         ctx.world.get_resource_mut::<MqttSubscriptions>().unwrap();
-                                    subs.0.push((topic, qos));
+                                    subs.0.push(new_sub);
                                     log::info!("subscribed to topic '{topic}'");
                                 })
                                 .await;
@@ -510,7 +515,7 @@ struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::MqttSubsMessage>);
 
 #[allow(unused)]
 #[derive(Debug, Resource)]
-struct MqttSubscriptions(Vec<(&'static str, Qos)>);
+struct MqttSubscriptions(Vec<NewSubscriptions>);
 
 #[derive(Debug, Resource)]
 struct RestartTaskHandle(tokio::task::JoinHandle<()>);

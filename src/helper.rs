@@ -73,6 +73,11 @@ impl From<Arc<[u8]>> for AtomicFixedBytes {
         Self(value)
     }
 }
+impl From<Vec<u8>> for AtomicFixedBytes {
+    fn from(value: Vec<u8>) -> Self {
+        Self(Arc::<[u8]>::from(value))
+    }
+}
 impl AsRef<[u8]> for AtomicFixedBytes {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()

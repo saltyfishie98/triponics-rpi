@@ -12,6 +12,7 @@ use bevy_ecs::{
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
+use mqtt::component::MqttMsg;
 #[allow(unused_imports)]
 use tracing as log;
 
@@ -41,7 +42,7 @@ fn main() -> anyhow::Result<()> {
             mqtt::MqttPlugin {
                 client_create_options,
                 client_connect_options,
-                initial_subscriptions: &[],
+                initial_subscriptions: vec![Counter::subscribe_info()],
             },
             mqtt::add_on::PublishStatePlugin {
                 publish_interval: Duration::from_secs(1),
@@ -57,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize)]
+#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize)]
 struct Counter {
     data: u32,
 }
@@ -66,13 +67,20 @@ impl Counter {
         Self { data }
     }
 }
+impl mqtt::component::MqttMsg<'_> for Counter {
+    const TOPIC: &'static str = "saltyfishie/counter";
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
+}
 impl mqtt::add_on::publish_state::StatePublisher for Counter {
-    fn to_publish(&self) -> mqtt::component::PublishMsg {
+    fn update_publish_state(&self) -> mqtt::component::PublishMsg {
         let mut payload = Vec::new();
         serde_json::to_writer(&mut payload, self).unwrap();
-
-        mqtt::component::PublishMsg::new("saltyfishie/counter", payload, mqtt::Qos::_1)
+        self.publish()
     }
+}
+
+fn test_subscription(mut cmd: Commands) {
+    cmd.spawn(Counter::subscribe_info());
 }
 
 fn exit_task(rt: ResMut<TokioTasksRuntime>) {
@@ -83,13 +91,6 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         })
         .await;
     });
-}
-
-fn test_subscription(mut cmd: Commands) {
-    cmd.spawn(mqtt::component::NewSubscriptions(
-        "testing/#",
-        mqtt::Qos::_1,
-    ));
 }
 
 fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttSubsMessage>) {

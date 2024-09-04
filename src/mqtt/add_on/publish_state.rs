@@ -46,7 +46,7 @@ impl UpdateState {
 }
 
 pub trait StatePublisher {
-    fn to_publish(&self) -> component::PublishMsg;
+    fn update_publish_state(&self) -> component::PublishMsg;
 }
 
 #[derive(Resource)]
@@ -67,7 +67,7 @@ impl StatePublishRegistry {
 
                 if let Some(UpdateState { id, data }) = maybe_new_state {
                     let mut registry = world.get_resource_mut::<StatePublishRegistry>().unwrap();
-                    registry.hashmap.insert(id, data.to_publish());
+                    registry.hashmap.insert(id, data.update_publish_state());
                 }
             });
         })
