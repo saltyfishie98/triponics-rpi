@@ -41,18 +41,42 @@ where
     serializer.serialize_str(v)
 }
 
-pub fn deserialize_arc_bytes<'de, D>(deserializer: D) -> Result<Arc<[u8]>, D::Error>
+fn deserialize_arc_bytes<'de, D>(deserializer: D) -> Result<Arc<[u8]>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     Ok(Vec::deserialize(deserializer)?.into())
 }
 
-pub fn serialize_arc_bytes<S>(v: &Arc<[u8]>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_arc_bytes<S>(v: &Arc<[u8]>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     serializer.serialize_bytes(v.as_ref())
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default)]
+pub struct AtomicFixedBytes(
+    #[serde(
+        serialize_with = "serialize_arc_bytes",
+        deserialize_with = "deserialize_arc_bytes"
+    )]
+    Arc<[u8]>,
+);
+impl From<&'static [u8]> for AtomicFixedBytes {
+    fn from(value: &'static [u8]) -> Self {
+        Self(value.into())
+    }
+}
+impl From<Arc<[u8]>> for AtomicFixedBytes {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self(value)
+    }
+}
+impl AsRef<[u8]> for AtomicFixedBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default)]

@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use bevy_ecs::component::Component;
 
-use crate::helper::AtomicFixedString;
+use crate::helper::{AtomicFixedBytes, AtomicFixedString};
 
 use super::Qos;
 
@@ -12,18 +10,17 @@ pub struct NewSubscriptions(pub &'static str, pub Qos);
 #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PublishMsg {
     pub(super) topic: AtomicFixedString,
-    #[serde(
-        serialize_with = "crate::helper::serialize_arc_bytes",
-        deserialize_with = "crate::helper::deserialize_arc_bytes"
-    )]
-    pub(super) payload: Arc<[u8]>,
+    pub(super) payload: AtomicFixedBytes,
     pub(super) qos: Qos,
 }
 impl PublishMsg {
-    pub fn new(topic: &'static str, payload: impl AsRef<[u8]>, qos: Qos) -> Self {
+    pub fn new(topic: &'static str, payload: Vec<u8>, qos: Qos) -> Self {
+        use std::sync::Arc;
+        let payload: Arc<[u8]> = payload.into();
+
         Self {
             topic: topic.into(),
-            payload: payload.as_ref().into(),
+            payload: payload.into(),
             qos,
         }
     }
@@ -34,7 +31,8 @@ impl std::fmt::Debug for PublishMsg {
             .field("topic", &self.topic)
             .field(
                 "payload",
-                &String::from_utf8(self.payload.as_ref().into()).unwrap_or("INVALID UTF-8".into()),
+                &String::from_utf8(self.payload.as_ref().to_vec())
+                    .unwrap_or("INVALID UTF-8".into()),
             )
             .field("qos", &self.qos)
             .finish()

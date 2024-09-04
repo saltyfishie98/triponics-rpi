@@ -23,7 +23,9 @@ impl Plugin for PublishStatePlugin {
                 Update,
                 (
                     StatePublishRegistry::update,
-                    StatePublishRegistry::publish.run_if(on_timer(self.publish_interval)),
+                    StatePublishRegistry::publish
+                        .run_if(on_timer(self.publish_interval))
+                        .after(StatePublishRegistry::update),
                 ),
             );
     }

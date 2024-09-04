@@ -15,24 +15,6 @@ use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 #[allow(unused_imports)]
 use tracing as log;
 
-#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize)]
-struct Counter {
-    data: u32,
-}
-impl Counter {
-    fn new(data: u32) -> Self {
-        Self { data }
-    }
-}
-impl mqtt::add_on::publish_state::StatePublisher for Counter {
-    fn to_publish(&self) -> mqtt::component::PublishMsg {
-        let mut payload = Vec::new();
-        serde_json::to_writer(&mut payload, self).unwrap();
-
-        mqtt::component::PublishMsg::new("saltyfishie/counter", &payload, mqtt::Qos::_1)
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     helper::init_logging();
 
@@ -73,6 +55,24 @@ fn main() -> anyhow::Result<()> {
     log::info!("bye!");
 
     Ok(())
+}
+
+#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize)]
+struct Counter {
+    data: u32,
+}
+impl Counter {
+    fn new(data: u32) -> Self {
+        Self { data }
+    }
+}
+impl mqtt::add_on::publish_state::StatePublisher for Counter {
+    fn to_publish(&self) -> mqtt::component::PublishMsg {
+        let mut payload = Vec::new();
+        serde_json::to_writer(&mut payload, self).unwrap();
+
+        mqtt::component::PublishMsg::new("saltyfishie/counter", payload, mqtt::Qos::_1)
+    }
 }
 
 fn exit_task(rt: ResMut<TokioTasksRuntime>) {
