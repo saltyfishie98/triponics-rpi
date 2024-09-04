@@ -12,7 +12,8 @@ use bevy_ecs::{
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
-use mqtt::component::MqttMsg;
+use helper::AtomicFixedString;
+use mqtt::MqttMessage;
 #[allow(unused_imports)]
 use tracing as log;
 
@@ -42,13 +43,13 @@ fn main() -> anyhow::Result<()> {
             mqtt::MqttPlugin {
                 client_create_options,
                 client_connect_options,
-                initial_subscriptions: vec![Counter::subscribe_info()],
+                initial_subscriptions: mqtt::Subscriptions::new().with::<TestMsg>().finalize(),
             },
             mqtt::add_on::PublishStatePlugin {
                 publish_interval: Duration::from_secs(1),
             },
         ))
-        .insert_resource(Counter::new(0))
+        .insert_resource(Counter { data: 0 })
         .add_systems(Startup, (exit_task, test_subscription))
         .add_systems(Update, (control, log_mqtt_msg))
         .run();
@@ -58,16 +59,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize, Debug)]
 struct Counter {
     data: u32,
 }
-impl Counter {
-    fn new(data: u32) -> Self {
-        Self { data }
-    }
-}
-impl mqtt::component::MqttMsg<'_> for Counter {
+impl mqtt::MqttMessage<'_> for Counter {
     const TOPIC: &'static str = "saltyfishie/counter";
     const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
@@ -79,8 +75,17 @@ impl mqtt::add_on::publish_state::StatePublisher for Counter {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct TestMsg {
+    value: Option<AtomicFixedString>,
+}
+impl mqtt::MqttMessage<'_> for TestMsg {
+    const TOPIC: &'static str = "saltyfishie/test_msg";
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
+}
+
 fn test_subscription(mut cmd: Commands) {
-    cmd.spawn(Counter::subscribe_info());
+    cmd.spawn(mqtt::Subscriptions::new().with::<Counter>().finalize());
 }
 
 fn exit_task(rt: ResMut<TokioTasksRuntime>) {
@@ -93,9 +98,13 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
     });
 }
 
-fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::MqttSubsMessage>) {
-    while let Some(mqtt::event::MqttSubsMessage(msg)) = ev_reader.read().next() {
-        log::debug!("mqtt msg: {}", msg);
+fn log_mqtt_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessages>) {
+    while let Some(all_msg) = ev_reader.read().next() {
+        match all_msg.read::<Counter>() {
+            Some(Ok(msg)) => log::debug!("receive mqtt msg: {:?}", msg),
+            Some(Err(e)) => log::warn!("error while reading mqtt incoming mqtt msg, reason: {}", e),
+            None => log::debug!("msg payload not 'Counter'"),
+        }
     }
 }
 

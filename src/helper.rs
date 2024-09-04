@@ -1,11 +1,8 @@
 pub fn init_logging() {
     use tracing_subscriber::{layer::SubscriberExt, Layer};
 
-    let subscriber = tracing_subscriber::Registry::default().with(
-        tracing_subscriber::EnvFilter::builder()
-            .with_default_directive(tracing::level_filters::LevelFilter::TRACE.into())
-            .from_env_lossy(),
-    );
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_subscriber::EnvFilter::try_from_env("LOGGING").unwrap_or_default());
 
     let fmt = {
         let time_offset = time::UtcOffset::current_local_offset()
