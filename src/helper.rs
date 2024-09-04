@@ -94,13 +94,13 @@ use serde::Deserialize;
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);
 
-pub trait AppExtensions {
+pub trait AsyncEventExt {
     // Allows you to create bevy events using mpsc Sender
-    fn add_event_channel<T: Event>(&mut self, receiver: Receiver<T>) -> &mut Self;
+    fn add_async_event_receiver<T: Event>(&mut self, receiver: Receiver<T>) -> &mut Self;
 }
 
-impl AppExtensions for App {
-    fn add_event_channel<T: Event>(&mut self, receiver: Receiver<T>) -> &mut Self {
+impl AsyncEventExt for App {
+    fn add_async_event_receiver<T: Event>(&mut self, receiver: Receiver<T>) -> &mut Self {
         assert!(
             !self.world().contains_resource::<ChannelReceiver<T>>(),
             "this event channel is already initialized",

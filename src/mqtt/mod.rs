@@ -29,7 +29,7 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::helper::{AppExtensions, AtomicFixedString};
+use crate::helper::{AsyncEventExt, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
@@ -59,7 +59,7 @@ impl Plugin for MqttPlugin {
                 client_create_options.cache_dir_path.as_ref().unwrap(),
             ))
             .add_event::<event::RestartClient>()
-            .add_event_channel(mqtt_incoming_msg_rx)
+            .add_async_event_receiver(mqtt_incoming_msg_rx)
             .add_systems(
                 Update,
                 (
