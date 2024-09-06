@@ -13,6 +13,7 @@ use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
 use mqtt::MqttMessage;
+use rand::Rng;
 use time::macros::offset;
 #[allow(unused_imports)]
 use tracing as log;
@@ -109,7 +110,7 @@ fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     cmd.spawn(mqtt::add_on::publish_state::UpdateState::new(
         counter.clone(),
     ));
-    counter.data += 1;
+    counter.data = rand::thread_rng().gen_range(0..100);
     counter.datetime = local_time_now_str();
 }
 
