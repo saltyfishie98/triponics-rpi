@@ -13,6 +13,7 @@ use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
 use mqtt::MqttMessage;
+use time::macros::offset;
 #[allow(unused_imports)]
 use tracing as log;
 
@@ -48,7 +49,10 @@ fn main() -> anyhow::Result<()> {
                 publish_interval: Duration::from_secs(1),
             },
         ))
-        .insert_resource(Counter { data: 0 })
+        .insert_resource(Counter {
+            data: 0,
+            datetime: local_time_now_str(),
+        })
         .add_systems(Startup, (exit_task, Counter::subscribe))
         .add_systems(Update, (control, Counter::log_msg))
         .run();
@@ -61,6 +65,7 @@ fn main() -> anyhow::Result<()> {
 #[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize, Debug)]
 struct Counter {
     data: u32,
+    datetime: String,
 }
 impl Counter {
     fn subscribe(mut cmd: Commands) {
@@ -80,13 +85,11 @@ impl Counter {
     }
 }
 impl mqtt::MqttMessage<'_> for Counter {
-    const TOPIC: &'static str = "saltyfishie/counter";
+    const TOPIC: &'static str = "data/triponics/counter/0";
     const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
 impl mqtt::add_on::publish_state::StatePublisher for Counter {
     fn update_publish_state(&self) -> mqtt::component::PublishMsg {
-        let mut payload = Vec::new();
-        serde_json::to_writer(&mut payload, self).unwrap();
         self.publish()
     }
 }
@@ -107,4 +110,15 @@ fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
         counter.clone(),
     ));
     counter.data += 1;
+    counter.datetime = local_time_now_str();
+}
+
+fn local_time_now_str() -> String {
+    time::OffsetDateTime::now_utc()
+        .to_offset(offset!(+8))
+        .format(
+            &time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+                .unwrap(),
+        )
+        .unwrap()
 }
