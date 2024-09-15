@@ -7,9 +7,10 @@ use std::time::Duration;
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
     event::EventReader,
-    system::{Commands, ResMut},
+    schedule::IntoSystemConfigs,
+    system::{Commands, Local, ResMut},
 };
-use bevy_internal::MinimalPlugins;
+use bevy_internal::{time::common_conditions::on_timer, MinimalPlugins};
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
 use mqtt::MqttMessage;
@@ -44,7 +45,7 @@ fn main() -> anyhow::Result<()> {
             mqtt::MqttPlugin {
                 client_create_options,
                 client_connect_options,
-                initial_subscriptions: mqtt::Subscriptions::new().finalize(),
+                initial_subscriptions: mqtt::Subscriptions::new().with::<LightRelay>().finalize(),
             },
             mqtt::add_on::PublishStatePlugin {
                 publish_interval: Duration::from_secs(1),
@@ -55,7 +56,14 @@ fn main() -> anyhow::Result<()> {
             datetime: local_time_now_str(),
         })
         .add_systems(Startup, (exit_task, Counter::subscribe))
-        .add_systems(Update, (control, Counter::log_msg))
+        .add_systems(
+            Update,
+            (
+                control.run_if(on_timer(Duration::from_secs(1))),
+                Counter::log_msg,
+                LightRelay::update,
+            ),
+        )
         .run();
 
     log::info!("bye!");
@@ -105,8 +113,52 @@ fn exit_task(rt: ResMut<TokioTasksRuntime>) {
     });
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct LightRelay {
+    turn_on: bool,
+}
+impl LightRelay {
+    fn update(
+        mut ev_reader: EventReader<mqtt::event::IncomingMessages>,
+        mut pin: Local<Option<rppal::gpio::OutputPin>>,
+    ) {
+        while let Some(all_msg) = ev_reader.read().next() {
+            match all_msg.read::<LightRelay>() {
+                Some(Ok(msg)) => {
+                    if pin.is_none() {
+                        *pin = Some(
+                            rppal::gpio::Gpio::new()
+                                .unwrap()
+                                .get(23)
+                                .unwrap()
+                                .into_output(),
+                        );
+                    }
+
+                    let pin = pin.as_mut().unwrap();
+
+                    if msg.turn_on {
+                        pin.set_low();
+                    } else {
+                        pin.set_high();
+                    }
+                }
+                Some(Err(e)) => {
+                    log::warn!("error while reading mqtt incoming mqtt msg, reason: {}", e)
+                }
+                None => {}
+            }
+        }
+    }
+}
+impl mqtt::MqttMessage<'_> for LightRelay {
+    const TOPIC: &'static str = " ";
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
+}
+
 fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
     log::trace!("update control");
+
     cmd.spawn(mqtt::add_on::publish_state::UpdateState::new(
         counter.clone(),
     ));
