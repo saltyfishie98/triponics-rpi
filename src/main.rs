@@ -41,16 +41,11 @@ fn main() -> anyhow::Result<()> {
             ))),
             TokioTasksPlugin::default(),
         ))
-        .add_plugins((
-            mqtt::MqttPlugin {
-                client_create_options,
-                client_connect_options,
-                initial_subscriptions: mqtt::Subscriptions::new().with::<LightRelay>().finalize(),
-            },
-            mqtt::add_on::PublishStatePlugin {
-                publish_interval: Duration::from_secs(1),
-            },
-        ))
+        .add_plugins(mqtt::MqttPlugin {
+            client_create_options,
+            client_connect_options,
+            initial_subscriptions: mqtt::Subscriptions::new().with::<LightRelay>().finalize(),
+        })
         .insert_resource(Counter {
             data: 0,
             datetime: local_time_now_str(),
@@ -59,9 +54,11 @@ fn main() -> anyhow::Result<()> {
         .add_systems(
             Update,
             (
-                control.run_if(on_timer(Duration::from_secs(1))),
+                Counter::update,
+                Counter::publish.run_if(on_timer(Duration::from_secs(1))),
                 Counter::log_msg,
                 LightRelay::update,
+                LightRelay::publish.run_if(on_timer(Duration::from_secs(1))),
             ),
         )
         .run();
@@ -71,10 +68,24 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn exit_task(rt: ResMut<TokioTasksRuntime>) {
+    rt.spawn_background_task(|mut ctx| async move {
+        let _ = tokio::signal::ctrl_c().await;
+        ctx.run_on_main_thread(move |ctx| {
+            ctx.world.send_event(AppExit::Success);
+        })
+        .await;
+    });
+}
+
 #[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize, Debug)]
 struct Counter {
     data: u32,
     datetime: String,
+}
+impl mqtt::MqttMessage<'_> for Counter {
+    const TOPIC: &'static str = "data/triponics/counter/0";
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
 impl Counter {
     fn subscribe(mut cmd: Commands) {
@@ -90,72 +101,57 @@ impl Counter {
             }
         }
     }
-}
-impl mqtt::MqttMessage<'_> for Counter {
-    const TOPIC: &'static str = "data/triponics/counter/0";
-    const QOS: mqtt::Qos = mqtt::Qos::_1;
-}
-impl mqtt::add_on::publish_state::StatePublisher for Counter {
-    fn update_publish_state(&self) -> mqtt::component::PublishMsg {
-        self.publish()
+
+    fn update(mut counter: ResMut<Counter>) {
+        log::trace!("update control");
+        counter.data = rand::thread_rng().gen_range(0..100);
+        counter.datetime = local_time_now_str();
     }
 }
 
-fn exit_task(rt: ResMut<TokioTasksRuntime>) {
-    rt.spawn_background_task(|mut ctx| async move {
-        let _ = tokio::signal::ctrl_c().await;
-        ctx.run_on_main_thread(move |ctx| {
-            ctx.world.send_event(AppExit::Success);
-        })
-        .await;
-    });
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
 struct LightRelay {
-    turn_on: bool,
+    light_on: bool,
+}
+impl mqtt::MqttMessage<'_> for LightRelay {
+    const TOPIC: &'static str = "data/triponics/grow_light/0";
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
 impl LightRelay {
     fn update(
+        mut cmd: Commands,
         mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
         mut pin: Local<Option<rppal::gpio::OutputPin>>,
     ) {
+        if pin.is_none() {
+            log::debug!("init light gpio");
+            *pin = Some({
+                let mut pin = rppal::gpio::Gpio::new()
+                    .unwrap()
+                    .get(23)
+                    .unwrap()
+                    .into_output();
+
+                pin.set_high();
+                pin
+            });
+            cmd.insert_resource(Self { light_on: false })
+        }
+
         while let Some(incoming_msg) = ev_reader.read().next() {
             if let Some(msg) = incoming_msg.get::<LightRelay>() {
-                if pin.is_none() {
-                    *pin = Some(
-                        rppal::gpio::Gpio::new()
-                            .unwrap()
-                            .get(23)
-                            .unwrap()
-                            .into_output(),
-                    );
-                }
-
                 let pin = pin.as_mut().unwrap();
 
-                if msg.turn_on {
+                if msg.light_on {
                     pin.set_low();
+                    cmd.insert_resource(Self { light_on: true })
                 } else {
                     pin.set_high();
+                    cmd.insert_resource(Self { light_on: false })
                 }
             }
         }
     }
-}
-impl mqtt::MqttMessage<'_> for LightRelay {
-    const TOPIC: &'static str = " ";
-    const QOS: mqtt::Qos = mqtt::Qos::_1;
-}
-
-fn control(mut cmd: Commands, mut counter: ResMut<Counter>) {
-    log::trace!("update control");
-
-    cmd.spawn(mqtt::add_on::publish_state::UpdateState::new(
-        counter.clone(),
-    ));
-    counter.data = rand::thread_rng().gen_range(0..100);
-    counter.datetime = local_time_now_str();
 }
 
 fn local_time_now_str() -> String {

@@ -1,4 +1,3 @@
-pub mod add_on;
 pub mod component;
 pub mod event;
 
@@ -48,7 +47,17 @@ where
         out
     }
 
-    fn publish(&self) -> component::PublishMsg {
+    fn publish(mut cmd: Commands, maybe_this: Option<Res<Self>>)
+    where
+        Self: Resource,
+    {
+        if let Some(this) = maybe_this {
+            log::debug!("publishing {this:?}");
+            cmd.spawn(this.make_publish());
+        }
+    }
+
+    fn make_publish(&self) -> component::PublishMsg {
         self.clone().into()
     }
 }
