@@ -81,14 +81,12 @@ impl Counter {
         cmd.spawn(mqtt::Subscriptions::new().with::<Counter>().finalize());
     }
 
-    fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessages>) {
-        while let Some(all_msg) = ev_reader.read().next() {
-            match all_msg.read::<Counter>() {
-                Some(Ok(msg)) => log::debug!("receive mqtt msg: {:?}", msg),
-                Some(Err(e)) => {
-                    log::warn!("error while reading mqtt incoming mqtt msg, reason: {}", e)
-                }
-                None => log::debug!("msg payload not 'Counter'"),
+    fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessage>) {
+        while let Some(incoming_msg) = ev_reader.read().next() {
+            if let Some(msg) = incoming_msg.get::<Counter>() {
+                log::debug!("receive mqtt msg: {:?}", msg)
+            } else {
+                log::debug!("msg payload not 'Counter'")
             }
         }
     }
@@ -119,34 +117,28 @@ struct LightRelay {
 }
 impl LightRelay {
     fn update(
-        mut ev_reader: EventReader<mqtt::event::IncomingMessages>,
+        mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
         mut pin: Local<Option<rppal::gpio::OutputPin>>,
     ) {
-        while let Some(all_msg) = ev_reader.read().next() {
-            match all_msg.read::<LightRelay>() {
-                Some(Ok(msg)) => {
-                    if pin.is_none() {
-                        *pin = Some(
-                            rppal::gpio::Gpio::new()
-                                .unwrap()
-                                .get(23)
-                                .unwrap()
-                                .into_output(),
-                        );
-                    }
-
-                    let pin = pin.as_mut().unwrap();
-
-                    if msg.turn_on {
-                        pin.set_low();
-                    } else {
-                        pin.set_high();
-                    }
+        while let Some(incoming_msg) = ev_reader.read().next() {
+            if let Some(msg) = incoming_msg.get::<LightRelay>() {
+                if pin.is_none() {
+                    *pin = Some(
+                        rppal::gpio::Gpio::new()
+                            .unwrap()
+                            .get(23)
+                            .unwrap()
+                            .into_output(),
+                    );
                 }
-                Some(Err(e)) => {
-                    log::warn!("error while reading mqtt incoming mqtt msg, reason: {}", e)
+
+                let pin = pin.as_mut().unwrap();
+
+                if msg.turn_on {
+                    pin.set_low();
+                } else {
+                    pin.set_high();
                 }
-                None => {}
             }
         }
     }

@@ -35,7 +35,10 @@ use crate::helper::{AsyncEventExt, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
-pub trait MqttMessage<'de>: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug {
+pub trait MqttMessage<'de>
+where
+    Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
+{
     const TOPIC: &'static str;
     const QOS: Qos;
 
@@ -81,7 +84,7 @@ pub struct MqttPlugin {
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
-            std::sync::mpsc::channel::<event::IncomingMessages>();
+            std::sync::mpsc::channel::<event::IncomingMessage>();
 
         let Self {
             client_create_options,
@@ -126,7 +129,7 @@ impl MqttPlugin {
         create_opts: Res<ClientCreateOptions>,
     ) {
         async fn mqtt_recv_task(
-            mqtt_msg_tx: std::sync::mpsc::Sender<event::IncomingMessages>,
+            mqtt_msg_tx: std::sync::mpsc::Sender<event::IncomingMessage>,
             mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
         ) {
             log::debug!("started recv task!");
@@ -135,7 +138,7 @@ impl MqttPlugin {
                 match msg {
                     Some(msg) => {
                         log::trace!("polled mqtt msg");
-                        if let Err(e) = mqtt_msg_tx.send(event::IncomingMessages(msg)) {
+                        if let Err(e) = mqtt_msg_tx.send(event::IncomingMessage(msg)) {
                             log::warn!("{e}");
                         }
                     }
@@ -553,7 +556,7 @@ struct MqttClient {
 }
 
 #[derive(Debug, Resource, Clone)]
-struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::IncomingMessages>);
+struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::IncomingMessage>);
 
 #[allow(unused)]
 #[derive(Debug, Resource)]
