@@ -29,8 +29,10 @@
             "preLaunchTask": "debug: setup",
             "initCommands": [
                 "platform select remote-linux",
-                "platform connect connect://169.254.0.100:17777",
-                "settings set target.inherit-env false"
+                "platform connect connect://10.42.0.11:17777",
+                "platform settings -w /home/saltyfishie/Programs/debug",
+                "settings set target.inherit-env false",
+                "platform status",
             ],
             "postDebugTask": "debug: killall",
             "env": {

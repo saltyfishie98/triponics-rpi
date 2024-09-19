@@ -42,22 +42,19 @@
         {
             "label": "debug: killall",
             "type": "shell",
-            "command": "ssh saltyfishie@169.254.0.100 killall lldb-server ${workspaceFolderBasename}; echo 0"
+            "command": "make",
+            "args": [
+                "debug-killall"
+            ],
         },
         {
-            "label": "debug: write",
-            "dependsOn": "debug: killall",
+            "label": "debug: setup",
             "type": "shell",
             "command": "make",
             "args": [
                 "debug"
             ],
+            "dependsOn": "debug: killall"
         },
-        {
-            "label": "debug: setup",
-            "dependsOn": "debug: write",
-            "type": "shell",
-            "command": "ssh saltyfishie@169.254.0.100 \"sh -c 'nohup lldb-server platform --server --listen *:17777' > /dev/null 2>&1 &\"",
-        }
     ]
 }
