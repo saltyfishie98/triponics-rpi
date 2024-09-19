@@ -44,21 +44,30 @@ fn main() -> anyhow::Result<()> {
         .add_plugins(mqtt::MqttPlugin {
             client_create_options,
             client_connect_options,
-            initial_subscriptions: mqtt::Subscriptions::new().with::<LightRelay>().finalize(),
+            initial_subscriptions: mqtt::Subscriptions::new()
+                .with::<relay::GrowLight>()
+                .with::<relay::Switch01>()
+                .with::<relay::Switch02>()
+                .with::<relay::Switch03>()
+                .finalize(),
         })
-        .insert_resource(Counter {
-            data: 0,
-            datetime: local_time_now_str(),
-        })
-        .add_systems(Startup, (exit_task, Counter::subscribe))
+        .add_systems(
+            Startup,
+            (
+                exit_task, //
+                Counter::subscribe,
+            ),
+        )
         .add_systems(
             Update,
             (
                 Counter::update,
                 Counter::publish.run_if(on_timer(Duration::from_secs(1))),
                 Counter::log_msg,
-                LightRelay::update,
-                LightRelay::publish.run_if(on_timer(Duration::from_secs(1))),
+                relay::GrowLight::update,
+                relay::Switch01::update,
+                relay::Switch02::update,
+                relay::Switch03::update,
             ),
         )
         .run();
@@ -89,6 +98,10 @@ impl mqtt::MqttMessage<'_> for Counter {
 }
 impl Counter {
     fn subscribe(mut cmd: Commands) {
+        cmd.insert_resource(Counter {
+            data: 0,
+            datetime: m_::local_time_now_str(),
+        });
         cmd.spawn(mqtt::Subscriptions::new().with::<Counter>().finalize());
     }
 
@@ -105,61 +118,204 @@ impl Counter {
     fn update(mut counter: ResMut<Counter>) {
         log::trace!("update control");
         counter.data = rand::thread_rng().gen_range(0..100);
-        counter.datetime = local_time_now_str();
+        counter.datetime = m_::local_time_now_str();
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
-struct LightRelay {
-    light_on: bool,
-}
-impl mqtt::MqttMessage<'_> for LightRelay {
-    const TOPIC: &'static str = "data/triponics/grow_light/0";
-    const QOS: mqtt::Qos = mqtt::Qos::_1;
-}
-impl LightRelay {
-    fn update(
-        mut cmd: Commands,
-        mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-        mut pin: Local<Option<rppal::gpio::OutputPin>>,
-    ) {
-        if pin.is_none() {
-            log::debug!("init light gpio");
-            *pin = Some({
-                let mut pin = rppal::gpio::Gpio::new()
-                    .unwrap()
-                    .get(23)
-                    .unwrap()
-                    .into_output();
+mod relay {
+    use super::*;
 
-                pin.set_high();
-                pin
-            });
-            cmd.insert_resource(Self { light_on: false })
-        }
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
+    pub struct GrowLight {
+        light_on: bool,
+    }
+    impl mqtt::MqttMessage<'_> for GrowLight {
+        const TOPIC: &'static str = "data/triponics/grow_light/0";
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl GrowLight {
+        pub fn update(
+            mut cmd: Commands,
+            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+            mut pin: Local<Option<rppal::gpio::OutputPin>>,
+        ) {
+            if pin.is_none() {
+                log::debug!("init light gpio");
+                *pin = Some({
+                    let mut pin = rppal::gpio::Gpio::new()
+                        .unwrap()
+                        .get(27)
+                        .unwrap()
+                        .into_output();
 
-        while let Some(incoming_msg) = ev_reader.read().next() {
-            if let Some(msg) = incoming_msg.get::<LightRelay>() {
-                let pin = pin.as_mut().unwrap();
-
-                if msg.light_on {
-                    pin.set_low();
-                    cmd.insert_resource(Self { light_on: true })
-                } else {
                     pin.set_high();
-                    cmd.insert_resource(Self { light_on: false })
+                    pin
+                });
+                cmd.insert_resource(Self { light_on: false })
+            }
+
+            while let Some(incoming_msg) = ev_reader.read().next() {
+                if let Some(msg) = incoming_msg.get::<GrowLight>() {
+                    let pin = pin.as_mut().unwrap();
+
+                    if msg.light_on {
+                        pin.set_low();
+                        cmd.insert_resource(Self { light_on: true })
+                    } else {
+                        pin.set_high();
+                        cmd.insert_resource(Self { light_on: false })
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
+    pub struct Switch01 {
+        state: bool,
+    }
+    impl mqtt::MqttMessage<'_> for Switch01 {
+        const TOPIC: &'static str = "data/triponics/switch_1/0";
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl Switch01 {
+        pub fn update(
+            mut cmd: Commands,
+            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+            mut pin: Local<Option<rppal::gpio::OutputPin>>,
+        ) {
+            if pin.is_none() {
+                log::debug!("init light gpio");
+                *pin = Some({
+                    let mut pin = rppal::gpio::Gpio::new()
+                        .unwrap()
+                        .get(22)
+                        .unwrap()
+                        .into_output();
+
+                    pin.set_high();
+                    pin
+                });
+                cmd.insert_resource(Self { state: false })
+            }
+
+            while let Some(incoming_msg) = ev_reader.read().next() {
+                if let Some(msg) = incoming_msg.get::<Switch01>() {
+                    let pin = pin.as_mut().unwrap();
+
+                    if msg.state {
+                        pin.set_low();
+                        cmd.insert_resource(Self { state: true })
+                    } else {
+                        pin.set_high();
+                        cmd.insert_resource(Self { state: false })
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
+    pub struct Switch02 {
+        state: bool,
+    }
+    impl mqtt::MqttMessage<'_> for Switch02 {
+        const TOPIC: &'static str = "data/triponics/switch_2/0";
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl Switch02 {
+        pub fn update(
+            mut cmd: Commands,
+            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+            mut pin: Local<Option<rppal::gpio::OutputPin>>,
+        ) {
+            if pin.is_none() {
+                log::debug!("init light gpio");
+                *pin = Some({
+                    let mut pin = rppal::gpio::Gpio::new()
+                        .unwrap()
+                        .get(23)
+                        .unwrap()
+                        .into_output();
+
+                    pin.set_high();
+                    pin
+                });
+                cmd.insert_resource(Self { state: false })
+            }
+
+            while let Some(incoming_msg) = ev_reader.read().next() {
+                if let Some(msg) = incoming_msg.get::<Switch02>() {
+                    let pin = pin.as_mut().unwrap();
+
+                    if msg.state {
+                        pin.set_low();
+                        cmd.insert_resource(Self { state: true })
+                    } else {
+                        pin.set_high();
+                        cmd.insert_resource(Self { state: false })
+                    }
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
+    pub struct Switch03 {
+        state: bool,
+    }
+    impl mqtt::MqttMessage<'_> for Switch03 {
+        const TOPIC: &'static str = "data/triponics/switch_3/0";
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl Switch03 {
+        pub fn update(
+            mut cmd: Commands,
+            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+            mut pin: Local<Option<rppal::gpio::OutputPin>>,
+        ) {
+            if pin.is_none() {
+                log::debug!("init light gpio");
+                *pin = Some({
+                    let mut pin = rppal::gpio::Gpio::new()
+                        .unwrap()
+                        .get(24)
+                        .unwrap()
+                        .into_output();
+
+                    pin.set_high();
+                    pin
+                });
+                cmd.insert_resource(Self { state: false })
+            }
+
+            while let Some(incoming_msg) = ev_reader.read().next() {
+                if let Some(msg) = incoming_msg.get::<Switch03>() {
+                    let pin = pin.as_mut().unwrap();
+
+                    if msg.state {
+                        pin.set_low();
+                        cmd.insert_resource(Self { state: true })
+                    } else {
+                        pin.set_high();
+                        cmd.insert_resource(Self { state: false })
+                    }
                 }
             }
         }
     }
 }
 
-fn local_time_now_str() -> String {
-    time::OffsetDateTime::now_utc()
-        .to_offset(offset!(+8))
-        .format(
-            &time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
-                .unwrap(),
-        )
-        .unwrap()
+mod m_ {
+    use super::*;
+
+    pub fn local_time_now_str() -> String {
+        time::OffsetDateTime::now_utc()
+            .to_offset(offset!(+8))
+            .format(
+                &time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+                    .unwrap(),
+            )
+            .unwrap()
+    }
 }
