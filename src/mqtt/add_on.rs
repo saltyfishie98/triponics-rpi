@@ -47,11 +47,14 @@ pub mod action_type {
     }
 }
 
-pub trait ActionMessage
+pub trait ActionMessageHandler
 where
-    Self: DataInfo + MqttMessage + ActionPrefix,
+    Self: MqttMessage,
 {
-    type Type: ActionType;
+    type State;
+    type Request: ActionMessage;
+    type Status: ActionMessage;
+    type Response: ActionMessage;
 
     fn on_request() -> Option<SystemConfigs> {
         None
@@ -81,6 +84,13 @@ where
             qos: Self::qos(),
         }
     }
+}
+
+pub trait ActionMessage
+where
+    Self: DataInfo + MqttMessage + ActionPrefix,
+{
+    type Type: ActionType;
 }
 impl<T: ActionMessage> MqttMessage for T {
     fn topic() -> crate::helper::AtomicFixedString {

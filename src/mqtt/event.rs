@@ -1,6 +1,9 @@
 use bevy_ecs::event::Event;
 
-use super::MqttMessage;
+use super::{
+    add_on::{self, ActionMessage},
+    MqttMessage,
+};
 use tracing as log;
 
 #[derive(Debug, Event)]
@@ -10,6 +13,24 @@ pub struct RestartClient(pub &'static str);
 pub struct IncomingMessage(pub(super) paho_mqtt::Message);
 impl IncomingMessage {
     pub fn get<T: MqttMessage>(&self) -> Option<T> {
+        let msg = self.0.clone();
+
+        if msg.topic() == T::topic().as_ref() {
+            match serde_json::from_slice(msg.payload()) {
+                Ok(out) => Some(out),
+                Err(e) => {
+                    log::warn!("error reading incoming mqtt message, reason: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_action_msg<T: ActionMessage<Type = add_on::action_type::Request>>(
+        &self,
+    ) -> Option<T> {
         let msg = self.0.clone();
 
         if msg.topic() == T::topic().as_ref() {
