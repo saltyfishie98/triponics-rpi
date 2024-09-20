@@ -9,8 +9,9 @@ use serde::de::DeserializeOwned;
 pub use wrapper::*;
 
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock},
     time::Duration,
 };
 
@@ -21,8 +22,11 @@ use bevy_ecs::{
     event::{EventReader, EventWriter},
     prelude::on_event,
     query::With,
-    schedule::IntoSystemConfigs,
-    system::{Commands, Local, Query, Res, ResMut, Resource},
+    schedule::{IntoSystemConfigs, SystemConfig},
+    system::{
+        BoxedSystem, Commands, FunctionSystem, Local, Query, Res, ResMut, Resource, System,
+        SystemParam, SystemParamFunction,
+    },
     world::World,
 };
 use bevy_internal::time::{Time, Timer};
@@ -34,7 +38,7 @@ use crate::helper::{AsyncEventExt, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
-pub trait MqttMessage<'de>
+pub trait MqttMessage
 where
     Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
 {
@@ -47,6 +51,8 @@ where
     const TOPIC_STATUS: &'static str = "data";
     const TOPIC_REQUEST: &'static str = "request";
     const TOPIC_RESPONSE: &'static str = "response";
+
+    fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()>;
 
     fn payload(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -92,7 +98,7 @@ where
         Self: Resource,
     {
         if let Some(this) = maybe_this {
-            log::debug!("publishing {this:?}");
+            log::trace!("publishing {this:?}");
             cmd.spawn(this.status_msg());
         }
     }
@@ -107,17 +113,24 @@ where
 }
 
 #[derive(Debug, Default)]
-pub struct SubscriptionsBuilder(Vec<(AtomicFixedString, Qos)>);
+pub struct SubscriptionsBuilder {
+    subs: Vec<(AtomicFixedString, Qos)>,
+    update_systems: Vec<BoxedSystem>,
+}
 impl SubscriptionsBuilder {
-    pub fn with<'de, T: MqttMessage<'de>>(mut self) -> Self {
+    pub fn with<'de, T: MqttMessage>(mut self) -> Self {
         if let Some(qos) = T::ACTION_QOS {
-            self.0.push((T::request_topic(), qos));
+            self.subs.push((T::request_topic(), qos));
+            self.update_systems.push(Box::new(T::update_system()));
         }
         self
     }
 
-    pub fn finalize(self) -> Subscriptions {
-        Subscriptions(self.0.into())
+    pub fn finalize(self) -> (Subscriptions, RwLock<Vec<BoxedSystem>>) {
+        (
+            Subscriptions(self.subs.into()),
+            RwLock::new(self.update_systems),
+        )
     }
 }
 
@@ -133,9 +146,8 @@ impl Subscriptions {
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: Subscriptions,
+    pub initial_subscriptions: (Subscriptions, RwLock<Vec<BoxedSystem>>),
 }
-
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
@@ -147,9 +159,20 @@ impl Plugin for MqttPlugin {
             initial_subscriptions: subs,
         } = self;
 
+        match self.initial_subscriptions.1.try_write() {
+            Ok(mut a) => {
+                a.drain(..).for_each(|f| {
+                    app.add_systems(Update, f);
+                });
+            }
+            Err(_) => {
+                todo!()
+            }
+        }
+
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(MqttSubscriptions(subs.0.clone().to_vec()))
+            .insert_resource(MqttSubscriptions(subs.0.clone().0.to_vec()))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id.clone(),
@@ -446,7 +469,7 @@ impl MqttPlugin {
             ),
         ) {
             rt.spawn_background_task(move |_| async move {
-                log::debug!("staged -> {msg:?}");
+                log::trace!("staged -> {msg:?}");
                 match maybe_client {
                     Some(client) => match client.try_publish(msg.clone().into()) {
                         Ok(o) => {
