@@ -6,19 +6,12 @@ use bevy_ecs::{
 use super::{component, MqttMessage, Qos};
 use crate::log;
 
-pub trait DataInfo {
-    const PROJECT: &'static str;
-    const GROUP: &'static str;
-    const DEVICE: &'static str;
-    const QOS: Qos;
-}
-
 pub trait ActionPrefix {
     const STATUS_PREFIX: &'static str = "data";
     const REQUEST_PREFIX: &'static str = "request";
     const RESPONSE_PREFIX: &'static str = "response";
 }
-impl<T: DataInfo> ActionPrefix for T {}
+impl<T: ActionMessage> ActionPrefix for T {}
 
 pub trait ActionType {
     fn prefix<T: ActionPrefix>() -> &'static str;
@@ -88,9 +81,13 @@ where
 
 pub trait ActionMessage
 where
-    Self: DataInfo + MqttMessage + ActionPrefix,
+    Self: MqttMessage + ActionPrefix,
 {
     type Type: ActionType;
+    const PROJECT: &'static str;
+    const GROUP: &'static str;
+    const DEVICE: &'static str;
+    const QOS: Qos;
 }
 impl<T: ActionMessage> MqttMessage for T {
     fn topic() -> crate::helper::AtomicFixedString {

@@ -11,7 +11,7 @@ pub mod relay {
 
     use bevy_ecs::schedule::IntoSystemConfigs;
     use bevy_internal::time::common_conditions::on_timer;
-    use mqtt::add_on::{ActionMessage, ActionMessageHandler, DataInfo};
+    use mqtt::add_on::{ActionMessage, ActionMessageHandler};
 
     use super::*;
 
@@ -22,26 +22,22 @@ pub mod relay {
         pub struct Request {
             state: bool,
         }
-        impl DataInfo for Request {
+        impl ActionMessage for Request {
+            type Type = mqtt::add_on::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
         }
 
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
-        impl DataInfo for Response {
+        impl ActionMessage for Response {
+            type Type = mqtt::add_on::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
         }
 
         #[derive(
@@ -50,14 +46,12 @@ pub mod relay {
         pub struct State {
             state: bool,
         }
-        impl DataInfo for State {
+        impl ActionMessage for State {
+            type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for State {
-            type Type = mqtt::add_on::action_type::Status;
         }
         impl ActionMessageHandler for State {
             type State = Self;
@@ -123,26 +117,22 @@ pub mod relay {
         pub struct Request {
             state: bool,
         }
-        impl DataInfo for Request {
+        impl ActionMessage for Request {
+            type Type = mqtt::add_on::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
         }
 
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
-        impl DataInfo for Response {
+        impl ActionMessage for Response {
+            type Type = mqtt::add_on::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
         }
 
         #[derive(
@@ -151,14 +141,12 @@ pub mod relay {
         pub struct State {
             state: bool,
         }
-        impl DataInfo for State {
+        impl ActionMessage for State {
+            type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for State {
-            type Type = mqtt::add_on::action_type::Status;
         }
         impl ActionMessageHandler for State {
             type State = Self;
@@ -224,26 +212,22 @@ pub mod relay {
         pub struct Request {
             state: bool,
         }
-        impl DataInfo for Request {
+        impl ActionMessage for Request {
+            type Type = mqtt::add_on::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
         }
 
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
-        impl DataInfo for Response {
+        impl ActionMessage for Response {
+            type Type = mqtt::add_on::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
         }
 
         #[derive(
@@ -252,14 +236,12 @@ pub mod relay {
         pub struct State {
             state: bool,
         }
-        impl DataInfo for State {
+        impl ActionMessage for State {
+            type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for State {
-            type Type = mqtt::add_on::action_type::Status;
         }
         impl ActionMessageHandler for State {
             type State = Self;
@@ -325,26 +307,22 @@ pub mod relay {
         pub struct Request {
             state: bool,
         }
-        impl DataInfo for Request {
+        impl ActionMessage for Request {
+            type Type = mqtt::add_on::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
         }
 
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
-        impl DataInfo for Response {
+        impl ActionMessage for Response {
+            type Type = mqtt::add_on::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
         }
 
         #[derive(
@@ -353,14 +331,12 @@ pub mod relay {
         pub struct State {
             state: bool,
         }
-        impl DataInfo for State {
+        impl ActionMessage for State {
+            type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_3";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
-        }
-        impl ActionMessage for State {
-            type Type = mqtt::add_on::action_type::Status;
         }
         impl ActionMessageHandler for State {
             type State = Self;
