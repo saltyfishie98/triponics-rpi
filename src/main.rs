@@ -8,14 +8,11 @@ use std::time::Duration;
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
     event::EventReader,
-    schedule::{IntoSystemConfigs, IntoSystemSet},
-    system::{Commands, IntoSystem, Local, ResMut, System, SystemBuilder, SystemParam},
-    world::World,
+    system::{Commands, IntoSystem, ResMut},
 };
-use bevy_internal::{time::common_conditions::on_timer, MinimalPlugins};
+use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
-use mqtt::MqttMessage;
 use rand::Rng;
 use time::macros::offset;
 #[allow(unused_imports)]
@@ -47,10 +44,10 @@ fn main() -> anyhow::Result<()> {
             client_create_options,
             client_connect_options,
             initial_subscriptions: mqtt::Subscriptions::new()
-                .with::<msg::relay::GrowLight>()
-                .with::<msg::relay::Switch01>()
-                .with::<msg::relay::Switch02>()
-                .with::<msg::relay::Switch03>()
+                .with_action_msg::<msg::relay::GrowLight>()
+                .with_action_msg::<msg::relay::Switch01>()
+                .with_action_msg::<msg::relay::Switch02>()
+                .with_action_msg::<msg::relay::Switch03>()
                 .finalize(),
         })
         .add_systems(
@@ -60,21 +57,7 @@ fn main() -> anyhow::Result<()> {
                 Counter::subscribe,
             ),
         )
-        .add_systems(
-            Update,
-            (
-                Counter::log_msg,
-                Counter::publish_status.run_if(on_timer(Duration::from_secs(1))),
-                // msg::relay::GrowLight::update,
-                // msg::relay::GrowLight::publish_status.run_if(on_timer(Duration::from_secs(1))),
-                // msg::relay::Switch01::update,
-                // msg::relay::Switch01::publish_status.run_if(on_timer(Duration::from_secs(1))),
-                // msg::relay::Switch02::update,
-                // msg::relay::Switch02::publish_status.run_if(on_timer(Duration::from_secs(1))),
-                // msg::relay::Switch03::update,
-                // msg::relay::Switch03::publish_status.run_if(on_timer(Duration::from_secs(1))),
-            ),
-        )
+        .add_systems(Update, (Counter::log_msg,))
         .run();
 
     log::info!("bye!");
@@ -104,8 +87,9 @@ impl mqtt::MqttMessage for Counter {
 
     const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
     const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-
-    fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+}
+impl mqtt::SystemStateMsgHandler for Counter {
+    fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
         fn update(mut counter: ResMut<Counter>) {
             log::trace!("update control");
             counter.data = rand::thread_rng().gen_range(0..100);
@@ -121,7 +105,12 @@ impl Counter {
             data: 0,
             datetime: m_::local_time_now_str(),
         });
-        cmd.spawn(mqtt::Subscriptions::new().with::<Counter>().finalize().0);
+        cmd.spawn(
+            mqtt::Subscriptions::new()
+                .with_msg::<Counter>()
+                .finalize()
+                .0,
+        );
     }
 
     fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessage>) {

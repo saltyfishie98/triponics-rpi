@@ -20,8 +20,9 @@ pub mod relay {
 
         const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-
-        fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+    }
+    impl mqtt::SystemStateMsgHandler for GrowLight {
+        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
             fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -72,8 +73,9 @@ pub mod relay {
 
         const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-
-        fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+    }
+    impl mqtt::SystemStateMsgHandler for Switch01 {
+        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
             IntoSystem::into_system(Self::update)
         }
     }
@@ -125,8 +127,9 @@ pub mod relay {
 
         const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-
-        fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+    }
+    impl mqtt::SystemStateMsgHandler for Switch02 {
+        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
             IntoSystem::into_system(Self::update)
         }
     }
@@ -178,8 +181,9 @@ pub mod relay {
 
         const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-
-        fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+    }
+    impl mqtt::SystemStateMsgHandler for Switch03 {
+        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
             IntoSystem::into_system(Self::update)
         }
     }

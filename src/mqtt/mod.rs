@@ -9,7 +9,6 @@ use serde::de::DeserializeOwned;
 pub use wrapper::*;
 
 use std::{
-    cell::RefCell,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock, RwLock},
     time::Duration,
@@ -22,11 +21,8 @@ use bevy_ecs::{
     event::{EventReader, EventWriter},
     prelude::on_event,
     query::With,
-    schedule::{IntoSystemConfigs, SystemConfig},
-    system::{
-        BoxedSystem, Commands, FunctionSystem, Local, Query, Res, ResMut, Resource, System,
-        SystemParam, SystemParamFunction,
-    },
+    schedule::IntoSystemConfigs,
+    system::{BoxedSystem, Commands, Local, Query, Res, ResMut, Resource},
     world::World,
 };
 use bevy_internal::time::{Time, Timer};
@@ -34,9 +30,38 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::helper::{AsyncEventExt, AtomicFixedString};
+use crate::helper::{AsyncEventExt, AtomicFixedBytes, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
+
+pub trait SystemStateMsgHandler
+where
+    Self: MqttMessage,
+{
+    fn update() -> impl bevy_ecs::system::System<In = (), Out = ()>;
+
+    fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
+    where
+        Self: Resource,
+    {
+        if let Some(this) = maybe_this {
+            if let Some(msg) = this.status_msg() {
+                log::trace!("publishing {this:?}");
+                cmd.spawn(msg);
+            } else {
+                log::trace!("status msg publishing disabled, current status: {this:?}");
+            }
+        }
+    }
+
+    fn status_msg(&self) -> Option<component::PublishMsg> {
+        Self::status_topic().map(|topic| component::PublishMsg {
+            topic,
+            payload: self.to_payload(),
+            qos: Self::STATUS_QOS,
+        })
+    }
+}
 
 pub trait MqttMessage
 where
@@ -48,67 +73,53 @@ where
     const STATUS_QOS: Qos;
     const ACTION_QOS: Option<Qos>;
 
-    const TOPIC_STATUS: &'static str = "data";
-    const TOPIC_REQUEST: &'static str = "request";
-    const TOPIC_RESPONSE: &'static str = "response";
+    const TOPIC_STATUS: Option<&'static str> = Some("data");
+    const TOPIC_REQUEST: Option<&'static str> = Some("request");
+    const TOPIC_RESPONSE: Option<&'static str> = Some("response");
 
-    fn update_system() -> impl bevy_ecs::system::System<In = (), Out = ()>;
-
-    fn payload(&self) -> Vec<u8> {
+    fn to_payload(&self) -> AtomicFixedBytes {
         let mut out = Vec::new();
         serde_json::to_writer(&mut out, self).unwrap();
-        out
+        out.into()
     }
 
-    fn request_topic() -> AtomicFixedString {
-        format!(
-            "{}/{}/{}/{}",
-            Self::TOPIC_REQUEST,
-            Self::PROJECT,
-            Self::GROUP,
-            Self::DEVICE
-        )
-        .into()
+    fn request_topic() -> Option<AtomicFixedString> {
+        Self::TOPIC_REQUEST.map(|topic| {
+            format!(
+                "{}/{}/{}/{}",
+                topic,
+                Self::PROJECT,
+                Self::GROUP,
+                Self::DEVICE
+            )
+            .into()
+        })
     }
 
-    fn response_topic() -> AtomicFixedString {
-        format!(
-            "{}/{}/{}/{}",
-            Self::TOPIC_RESPONSE,
-            Self::PROJECT,
-            Self::GROUP,
-            Self::DEVICE
-        )
-        .into()
+    fn response_topic() -> Option<AtomicFixedString> {
+        Self::TOPIC_RESPONSE.map(|topic| {
+            format!(
+                "{}/{}/{}/{}",
+                topic,
+                Self::PROJECT,
+                Self::GROUP,
+                Self::DEVICE
+            )
+            .into()
+        })
     }
 
-    fn status_topic() -> AtomicFixedString {
-        format!(
-            "{}/{}/{}/{}",
-            Self::TOPIC_STATUS,
-            Self::PROJECT,
-            Self::GROUP,
-            Self::DEVICE
-        )
-        .into()
-    }
-
-    fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
-    where
-        Self: Resource,
-    {
-        if let Some(this) = maybe_this {
-            log::trace!("publishing {this:?}");
-            cmd.spawn(this.status_msg());
-        }
-    }
-
-    fn status_msg(&self) -> component::PublishMsg {
-        component::PublishMsg {
-            topic: Self::status_topic(),
-            payload: self.payload().into(),
-            qos: Self::STATUS_QOS,
-        }
+    fn status_topic() -> Option<AtomicFixedString> {
+        Self::TOPIC_STATUS.map(|topic| {
+            format!(
+                "{}/{}/{}/{}",
+                topic,
+                Self::PROJECT,
+                Self::GROUP,
+                Self::DEVICE
+            )
+            .into()
+        })
     }
 }
 
@@ -118,10 +129,21 @@ pub struct SubscriptionsBuilder {
     update_systems: Vec<BoxedSystem>,
 }
 impl SubscriptionsBuilder {
-    pub fn with<'de, T: MqttMessage>(mut self) -> Self {
+    pub fn with_msg<T: MqttMessage>(mut self) -> Self {
         if let Some(qos) = T::ACTION_QOS {
-            self.subs.push((T::request_topic(), qos));
-            self.update_systems.push(Box::new(T::update_system()));
+            if let Some(topic) = T::request_topic() {
+                self.subs.push((topic, qos));
+            }
+        }
+        self
+    }
+
+    pub fn with_action_msg<T: SystemStateMsgHandler>(mut self) -> Self {
+        if let Some(qos) = T::ACTION_QOS {
+            if let Some(topic) = T::request_topic() {
+                self.subs.push((topic, qos));
+                self.update_systems.push(Box::new(T::update()));
+            }
         }
         self
     }
