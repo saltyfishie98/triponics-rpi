@@ -21,8 +21,8 @@ use bevy_ecs::{
     event::{EventReader, EventWriter},
     prelude::on_event,
     query::With,
-    schedule::IntoSystemConfigs,
-    system::{BoxedSystem, Commands, Local, Query, Res, ResMut, Resource},
+    schedule::{IntoSystemConfigs, SystemConfigs},
+    system::{Commands, Local, Query, Res, ResMut, Resource},
     world::World,
 };
 use bevy_internal::time::{Time, Timer};
@@ -38,7 +38,10 @@ pub trait SystemStateMsgHandler
 where
     Self: MqttMessage,
 {
-    fn update() -> impl bevy_ecs::system::System<In = (), Out = ()>;
+    fn update() -> SystemConfigs;
+    fn status() -> Option<SystemConfigs> {
+        None
+    }
 
     fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
     where
@@ -123,10 +126,10 @@ where
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SubscriptionsBuilder {
     subs: Vec<(AtomicFixedString, Qos)>,
-    update_systems: Vec<BoxedSystem>,
+    systems: Vec<SystemConfigs>,
 }
 impl SubscriptionsBuilder {
     pub fn with_msg<T: MqttMessage>(mut self) -> Self {
@@ -142,17 +145,17 @@ impl SubscriptionsBuilder {
         if let Some(qos) = T::ACTION_QOS {
             if let Some(topic) = T::request_topic() {
                 self.subs.push((topic, qos));
-                self.update_systems.push(Box::new(T::update()));
+                self.systems.push(T::update());
+                if let Some(system) = T::status() {
+                    self.systems.push(system);
+                }
             }
         }
         self
     }
 
-    pub fn finalize(self) -> (Subscriptions, RwLock<Vec<BoxedSystem>>) {
-        (
-            Subscriptions(self.subs.into()),
-            RwLock::new(self.update_systems),
-        )
+    pub fn finalize(self) -> (Subscriptions, RwLock<Vec<SystemConfigs>>) {
+        (Subscriptions(self.subs.into()), RwLock::new(self.systems))
     }
 }
 
@@ -168,7 +171,7 @@ impl Subscriptions {
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: (Subscriptions, RwLock<Vec<BoxedSystem>>),
+    pub initial_subscriptions: (Subscriptions, RwLock<Vec<SystemConfigs>>),
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {

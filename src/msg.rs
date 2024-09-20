@@ -7,6 +7,11 @@ use tracing as log;
 use crate::mqtt;
 
 pub mod relay {
+    use std::time::Duration;
+
+    use bevy_ecs::schedule::IntoSystemConfigs;
+    use bevy_internal::time::common_conditions::on_timer;
+
     use super::*;
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
@@ -22,7 +27,7 @@ pub mod relay {
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl mqtt::SystemStateMsgHandler for GrowLight {
-        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+        fn update() -> bevy_ecs::schedule::SystemConfigs {
             fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -58,7 +63,15 @@ pub mod relay {
                 }
             }
 
-            IntoSystem::into_system(update)
+            IntoSystem::into_system(update).into_configs()
+        }
+
+        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+            Some(
+                IntoSystem::into_system(Self::publish_status)
+                    .into_configs()
+                    .run_if(on_timer(Duration::from_secs(1))),
+            )
         }
     }
 
@@ -75,44 +88,51 @@ pub mod relay {
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl mqtt::SystemStateMsgHandler for Switch01 {
-        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
-            IntoSystem::into_system(Self::update)
-        }
-    }
-    impl Switch01 {
-        pub fn update(
-            mut cmd: Commands,
-            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-            mut pin: Local<Option<rppal::gpio::OutputPin>>,
-        ) {
-            if pin.is_none() {
-                log::debug!("init light gpio");
-                *pin = Some({
-                    let mut pin = rppal::gpio::Gpio::new()
-                        .unwrap()
-                        .get(22)
-                        .unwrap()
-                        .into_output();
+        fn update() -> bevy_ecs::schedule::SystemConfigs {
+            pub fn update(
+                mut cmd: Commands,
+                mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+                mut pin: Local<Option<rppal::gpio::OutputPin>>,
+            ) {
+                if pin.is_none() {
+                    log::debug!("init light gpio");
+                    *pin = Some({
+                        let mut pin = rppal::gpio::Gpio::new()
+                            .unwrap()
+                            .get(22)
+                            .unwrap()
+                            .into_output();
 
-                    pin.set_high();
-                    pin
-                });
-                cmd.insert_resource(Self { state: false })
-            }
-
-            while let Some(incoming_msg) = ev_reader.read().next() {
-                if let Some(msg) = incoming_msg.get::<Switch01>() {
-                    let pin = pin.as_mut().unwrap();
-
-                    if msg.state {
-                        pin.set_low();
-                        cmd.insert_resource(Self { state: true })
-                    } else {
                         pin.set_high();
-                        cmd.insert_resource(Self { state: false })
+                        pin
+                    });
+                    cmd.insert_resource(Switch01 { state: false })
+                }
+
+                while let Some(incoming_msg) = ev_reader.read().next() {
+                    if let Some(msg) = incoming_msg.get::<Switch01>() {
+                        let pin = pin.as_mut().unwrap();
+
+                        if msg.state {
+                            pin.set_low();
+                            cmd.insert_resource(Switch01 { state: true })
+                        } else {
+                            pin.set_high();
+                            cmd.insert_resource(Switch01 { state: false })
+                        }
                     }
                 }
             }
+
+            IntoSystem::into_system(update).into_configs()
+        }
+
+        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+            Some(
+                IntoSystem::into_system(Self::publish_status)
+                    .into_configs()
+                    .run_if(on_timer(Duration::from_secs(1))),
+            )
         }
     }
 
@@ -129,44 +149,51 @@ pub mod relay {
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl mqtt::SystemStateMsgHandler for Switch02 {
-        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
-            IntoSystem::into_system(Self::update)
-        }
-    }
-    impl Switch02 {
-        pub fn update(
-            mut cmd: Commands,
-            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-            mut pin: Local<Option<rppal::gpio::OutputPin>>,
-        ) {
-            if pin.is_none() {
-                log::debug!("init light gpio");
-                *pin = Some({
-                    let mut pin = rppal::gpio::Gpio::new()
-                        .unwrap()
-                        .get(23)
-                        .unwrap()
-                        .into_output();
+        fn update() -> bevy_ecs::schedule::SystemConfigs {
+            pub fn update(
+                mut cmd: Commands,
+                mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+                mut pin: Local<Option<rppal::gpio::OutputPin>>,
+            ) {
+                if pin.is_none() {
+                    log::debug!("init light gpio");
+                    *pin = Some({
+                        let mut pin = rppal::gpio::Gpio::new()
+                            .unwrap()
+                            .get(23)
+                            .unwrap()
+                            .into_output();
 
-                    pin.set_high();
-                    pin
-                });
-                cmd.insert_resource(Self { state: false })
-            }
-
-            while let Some(incoming_msg) = ev_reader.read().next() {
-                if let Some(msg) = incoming_msg.get::<Switch02>() {
-                    let pin = pin.as_mut().unwrap();
-
-                    if msg.state {
-                        pin.set_low();
-                        cmd.insert_resource(Self { state: true })
-                    } else {
                         pin.set_high();
-                        cmd.insert_resource(Self { state: false })
+                        pin
+                    });
+                    cmd.insert_resource(Switch02 { state: false })
+                }
+
+                while let Some(incoming_msg) = ev_reader.read().next() {
+                    if let Some(msg) = incoming_msg.get::<Switch02>() {
+                        let pin = pin.as_mut().unwrap();
+
+                        if msg.state {
+                            pin.set_low();
+                            cmd.insert_resource(Switch02 { state: true })
+                        } else {
+                            pin.set_high();
+                            cmd.insert_resource(Switch02 { state: false })
+                        }
                     }
                 }
             }
+
+            IntoSystem::into_system(update).into_configs()
+        }
+
+        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+            Some(
+                IntoSystem::into_system(Self::publish_status)
+                    .into_configs()
+                    .run_if(on_timer(Duration::from_secs(1))),
+            )
         }
     }
 
@@ -183,44 +210,51 @@ pub mod relay {
         const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl mqtt::SystemStateMsgHandler for Switch03 {
-        fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
-            IntoSystem::into_system(Self::update)
-        }
-    }
-    impl Switch03 {
-        pub fn update(
-            mut cmd: Commands,
-            mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-            mut pin: Local<Option<rppal::gpio::OutputPin>>,
-        ) {
-            if pin.is_none() {
-                log::debug!("init light gpio");
-                *pin = Some({
-                    let mut pin = rppal::gpio::Gpio::new()
-                        .unwrap()
-                        .get(24)
-                        .unwrap()
-                        .into_output();
+        fn update() -> bevy_ecs::schedule::SystemConfigs {
+            pub fn update(
+                mut cmd: Commands,
+                mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+                mut pin: Local<Option<rppal::gpio::OutputPin>>,
+            ) {
+                if pin.is_none() {
+                    log::debug!("init light gpio");
+                    *pin = Some({
+                        let mut pin = rppal::gpio::Gpio::new()
+                            .unwrap()
+                            .get(24)
+                            .unwrap()
+                            .into_output();
 
-                    pin.set_high();
-                    pin
-                });
-                cmd.insert_resource(Self { state: true })
-            }
-
-            while let Some(incoming_msg) = ev_reader.read().next() {
-                if let Some(msg) = incoming_msg.get::<Switch03>() {
-                    let pin = pin.as_mut().unwrap();
-
-                    if msg.state {
                         pin.set_high();
-                        cmd.insert_resource(Self { state: true })
-                    } else {
-                        pin.set_low();
-                        cmd.insert_resource(Self { state: false })
+                        pin
+                    });
+                    cmd.insert_resource(Switch03 { state: true })
+                }
+
+                while let Some(incoming_msg) = ev_reader.read().next() {
+                    if let Some(msg) = incoming_msg.get::<Switch03>() {
+                        let pin = pin.as_mut().unwrap();
+
+                        if msg.state {
+                            pin.set_high();
+                            cmd.insert_resource(Switch03 { state: true })
+                        } else {
+                            pin.set_low();
+                            cmd.insert_resource(Switch03 { state: false })
+                        }
                     }
                 }
             }
+
+            IntoSystem::into_system(update).into_configs()
+        }
+
+        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+            Some(
+                IntoSystem::into_system(Self::publish_status)
+                    .into_configs()
+                    .run_if(on_timer(Duration::from_secs(1))),
+            )
         }
     }
 }

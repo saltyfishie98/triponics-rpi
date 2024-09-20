@@ -8,6 +8,7 @@ use std::time::Duration;
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
     event::EventReader,
+    schedule::IntoSystemConfigs,
     system::{Commands, IntoSystem, ResMut},
 };
 use bevy_internal::MinimalPlugins;
@@ -89,14 +90,14 @@ impl mqtt::MqttMessage for Counter {
     const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
 }
 impl mqtt::SystemStateMsgHandler for Counter {
-    fn update() -> impl bevy_ecs::system::System<In = (), Out = ()> {
+    fn update() -> bevy_ecs::schedule::SystemConfigs {
         fn update(mut counter: ResMut<Counter>) {
             log::trace!("update control");
             counter.data = rand::thread_rng().gen_range(0..100);
             counter.datetime = m_::local_time_now_str();
         }
 
-        IntoSystem::into_system(update)
+        IntoSystem::into_system(update).into_configs()
     }
 }
 impl Counter {
