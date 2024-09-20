@@ -11,6 +11,7 @@ pub mod relay {
 
     use bevy_ecs::schedule::IntoSystemConfigs;
     use bevy_internal::time::common_conditions::on_timer;
+    use mqtt::add_on::{ActionMessage, DataInfo};
 
     use super::*;
 
@@ -18,16 +19,16 @@ pub mod relay {
     pub struct GrowLight {
         state: bool,
     }
-    impl mqtt::MqttMessage for GrowLight {
+    impl DataInfo for GrowLight {
         const PROJECT: &'static str = "triponics";
         const GROUP: &'static str = "growlight";
         const DEVICE: &'static str = "0";
-
-        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
-        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
     }
-    impl mqtt::SystemStateMsgHandler for GrowLight {
-        fn update() -> bevy_ecs::schedule::SystemConfigs {
+    impl ActionMessage for GrowLight {
+        type Type = mqtt::add_on::action_type::Status;
+
+        fn on_request() -> Option<bevy_ecs::schedule::SystemConfigs> {
             fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -63,10 +64,10 @@ pub mod relay {
                 }
             }
 
-            IntoSystem::into_system(update).into_configs()
+            Some(IntoSystem::into_system(update).into_configs())
         }
 
-        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+        fn status_publish() -> Option<bevy_ecs::schedule::SystemConfigs> {
             Some(
                 IntoSystem::into_system(Self::publish_status)
                     .into_configs()
@@ -79,16 +80,16 @@ pub mod relay {
     pub struct Switch01 {
         state: bool,
     }
-    impl mqtt::MqttMessage for Switch01 {
+    impl DataInfo for Switch01 {
         const PROJECT: &'static str = "triponics";
         const GROUP: &'static str = "switch_1";
         const DEVICE: &'static str = "0";
-
-        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
-        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
     }
-    impl mqtt::SystemStateMsgHandler for Switch01 {
-        fn update() -> bevy_ecs::schedule::SystemConfigs {
+    impl ActionMessage for Switch01 {
+        type Type = mqtt::add_on::action_type::Status;
+
+        fn on_request() -> Option<bevy_ecs::schedule::SystemConfigs> {
             pub fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -124,10 +125,10 @@ pub mod relay {
                 }
             }
 
-            IntoSystem::into_system(update).into_configs()
+            Some(IntoSystem::into_system(update).into_configs())
         }
 
-        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+        fn status_publish() -> Option<bevy_ecs::schedule::SystemConfigs> {
             Some(
                 IntoSystem::into_system(Self::publish_status)
                     .into_configs()
@@ -140,16 +141,16 @@ pub mod relay {
     pub struct Switch02 {
         state: bool,
     }
-    impl mqtt::MqttMessage for Switch02 {
+    impl DataInfo for Switch02 {
         const PROJECT: &'static str = "triponics";
         const GROUP: &'static str = "switch_2";
         const DEVICE: &'static str = "0";
-
-        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
-        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
     }
-    impl mqtt::SystemStateMsgHandler for Switch02 {
-        fn update() -> bevy_ecs::schedule::SystemConfigs {
+    impl ActionMessage for Switch02 {
+        type Type = mqtt::add_on::action_type::Status;
+
+        fn on_request() -> Option<bevy_ecs::schedule::SystemConfigs> {
             pub fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -185,10 +186,10 @@ pub mod relay {
                 }
             }
 
-            IntoSystem::into_system(update).into_configs()
+            Some(IntoSystem::into_system(update).into_configs())
         }
 
-        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+        fn status_publish() -> Option<bevy_ecs::schedule::SystemConfigs> {
             Some(
                 IntoSystem::into_system(Self::publish_status)
                     .into_configs()
@@ -201,16 +202,16 @@ pub mod relay {
     pub struct Switch03 {
         state: bool,
     }
-    impl mqtt::MqttMessage for Switch03 {
+    impl DataInfo for Switch03 {
         const PROJECT: &'static str = "triponics";
         const GROUP: &'static str = "switch_3";
         const DEVICE: &'static str = "0";
-
-        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
-        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
     }
-    impl mqtt::SystemStateMsgHandler for Switch03 {
-        fn update() -> bevy_ecs::schedule::SystemConfigs {
+    impl ActionMessage for Switch03 {
+        type Type = mqtt::add_on::action_type::Status;
+
+        fn on_request() -> Option<bevy_ecs::schedule::SystemConfigs> {
             pub fn update(
                 mut cmd: Commands,
                 mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
@@ -246,10 +247,10 @@ pub mod relay {
                 }
             }
 
-            IntoSystem::into_system(update).into_configs()
+            Some(IntoSystem::into_system(update).into_configs())
         }
 
-        fn status() -> Option<bevy_ecs::schedule::SystemConfigs> {
+        fn status_publish() -> Option<bevy_ecs::schedule::SystemConfigs> {
             Some(
                 IntoSystem::into_system(Self::publish_status)
                     .into_configs()

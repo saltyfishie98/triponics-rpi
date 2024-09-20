@@ -8,13 +8,11 @@ use std::time::Duration;
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
     event::EventReader,
-    schedule::IntoSystemConfigs,
-    system::{Commands, IntoSystem, ResMut},
+    system::{Commands, ResMut},
 };
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 
-use rand::Rng;
 use time::macros::offset;
 #[allow(unused_imports)]
 use tracing as log;
@@ -82,22 +80,12 @@ struct Counter {
     datetime: String,
 }
 impl mqtt::MqttMessage for Counter {
-    const PROJECT: &'static str = "triponics";
-    const GROUP: &'static str = "counter";
-    const DEVICE: &'static str = "0";
+    fn topic() -> helper::AtomicFixedString {
+        "test".into()
+    }
 
-    const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
-    const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
-}
-impl mqtt::SystemStateMsgHandler for Counter {
-    fn update() -> bevy_ecs::schedule::SystemConfigs {
-        fn update(mut counter: ResMut<Counter>) {
-            log::trace!("update control");
-            counter.data = rand::thread_rng().gen_range(0..100);
-            counter.datetime = m_::local_time_now_str();
-        }
-
-        IntoSystem::into_system(update).into_configs()
+    fn qos() -> mqtt::Qos {
+        mqtt::Qos::_1
     }
 }
 impl Counter {
@@ -118,8 +106,6 @@ impl Counter {
         while let Some(incoming_msg) = ev_reader.read().next() {
             if let Some(msg) = incoming_msg.get::<Counter>() {
                 log::debug!("receive mqtt msg: {:?}", msg)
-            } else {
-                log::debug!("msg payload not 'Counter'")
             }
         }
     }

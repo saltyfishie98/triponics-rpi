@@ -1,3 +1,4 @@
+pub mod add_on;
 pub mod component;
 pub mod event;
 
@@ -34,95 +35,49 @@ use crate::helper::{AsyncEventExt, AtomicFixedBytes, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
 
-pub trait SystemStateMsgHandler
-where
-    Self: MqttMessage,
-{
-    fn update() -> SystemConfigs;
-    fn status() -> Option<SystemConfigs> {
-        None
-    }
+// pub trait SystemStateMsgHandler
+// where
+//     Self: MqttMessage,
+// {
+//     fn update() -> SystemConfigs;
+//     fn status() -> Option<SystemConfigs> {
+//         None
+//     }
 
-    fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
-    where
-        Self: Resource,
-    {
-        if let Some(this) = maybe_this {
-            if let Some(msg) = this.status_msg() {
-                log::trace!("publishing {this:?}");
-                cmd.spawn(msg);
-            } else {
-                log::trace!("status msg publishing disabled, current status: {this:?}");
-            }
-        }
-    }
+//     fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
+//     where
+//         Self: Resource,
+//     {
+//         if let Some(this) = maybe_this {
+//             if let Some(msg) = this.status_msg() {
+//                 log::trace!("publishing {this:?}");
+//                 cmd.spawn(msg);
+//             } else {
+//                 log::trace!("status msg publishing disabled, current status: {this:?}");
+//             }
+//         }
+//     }
 
-    fn status_msg(&self) -> Option<component::PublishMsg> {
-        Self::status_topic().map(|topic| component::PublishMsg {
-            topic,
-            payload: self.to_payload(),
-            qos: Self::STATUS_QOS,
-        })
-    }
-}
+//     fn status_msg(&self) -> Option<component::PublishMsg> {
+//         Self::status_topic().map(|topic| component::PublishMsg {
+//             topic,
+//             payload: self.to_payload(),
+//             qos: Self::Qos,
+//         })
+//     }
+// }
 
 pub trait MqttMessage
 where
     Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
 {
-    const PROJECT: &'static str;
-    const GROUP: &'static str;
-    const DEVICE: &'static str;
-    const STATUS_QOS: Qos;
-    const ACTION_QOS: Option<Qos>;
-
-    const TOPIC_STATUS: Option<&'static str> = Some("data");
-    const TOPIC_REQUEST: Option<&'static str> = Some("request");
-    const TOPIC_RESPONSE: Option<&'static str> = Some("response");
+    fn topic() -> AtomicFixedString;
+    fn qos() -> Qos;
 
     fn to_payload(&self) -> AtomicFixedBytes {
         let mut out = Vec::new();
         serde_json::to_writer(&mut out, self).unwrap();
         out.into()
-    }
-
-    fn request_topic() -> Option<AtomicFixedString> {
-        Self::TOPIC_REQUEST.map(|topic| {
-            format!(
-                "{}/{}/{}/{}",
-                topic,
-                Self::PROJECT,
-                Self::GROUP,
-                Self::DEVICE
-            )
-            .into()
-        })
-    }
-
-    fn response_topic() -> Option<AtomicFixedString> {
-        Self::TOPIC_RESPONSE.map(|topic| {
-            format!(
-                "{}/{}/{}/{}",
-                topic,
-                Self::PROJECT,
-                Self::GROUP,
-                Self::DEVICE
-            )
-            .into()
-        })
-    }
-
-    fn status_topic() -> Option<AtomicFixedString> {
-        Self::TOPIC_STATUS.map(|topic| {
-            format!(
-                "{}/{}/{}/{}",
-                topic,
-                Self::PROJECT,
-                Self::GROUP,
-                Self::DEVICE
-            )
-            .into()
-        })
     }
 }
 
@@ -133,24 +88,19 @@ pub struct SubscriptionsBuilder {
 }
 impl SubscriptionsBuilder {
     pub fn with_msg<T: MqttMessage>(mut self) -> Self {
-        if let Some(qos) = T::ACTION_QOS {
-            if let Some(topic) = T::request_topic() {
-                self.subs.push((topic, qos));
-            }
-        }
+        self.subs.push((T::topic(), T::qos()));
         self
     }
 
-    pub fn with_action_msg<T: SystemStateMsgHandler>(mut self) -> Self {
-        if let Some(qos) = T::ACTION_QOS {
-            if let Some(topic) = T::request_topic() {
-                self.subs.push((topic, qos));
-                self.systems.push(T::update());
-                if let Some(system) = T::status() {
-                    self.systems.push(system);
-                }
-            }
+    pub fn with_action_msg<T: add_on::ActionMessage>(mut self) -> Self {
+        self.subs.push((T::topic(), T::qos()));
+        if let Some(system) = T::on_request() {
+            self.systems.push(system);
         }
+        if let Some(system) = T::status_publish() {
+            self.systems.push(system);
+        }
+
         self
     }
 
