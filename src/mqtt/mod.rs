@@ -38,8 +38,15 @@ pub trait MqttMessage<'de>
 where
     Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
 {
-    const TOPIC: &'static str;
-    const QOS: Qos;
+    const PROJECT: &'static str;
+    const GROUP: &'static str;
+    const DEVICE: &'static str;
+    const STATUS_QOS: Qos;
+    const ACTION_QOS: Option<Qos>;
+
+    const TOPIC_STATUS: &'static str = "data";
+    const TOPIC_REQUEST: &'static str = "request";
+    const TOPIC_RESPONSE: &'static str = "response";
 
     fn payload(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -47,26 +54,65 @@ where
         out
     }
 
-    fn publish(mut cmd: Commands, maybe_this: Option<Res<Self>>)
+    fn request_topic() -> AtomicFixedString {
+        format!(
+            "{}/{}/{}/{}",
+            Self::TOPIC_REQUEST,
+            Self::PROJECT,
+            Self::GROUP,
+            Self::DEVICE
+        )
+        .into()
+    }
+
+    fn response_topic() -> AtomicFixedString {
+        format!(
+            "{}/{}/{}/{}",
+            Self::TOPIC_RESPONSE,
+            Self::PROJECT,
+            Self::GROUP,
+            Self::DEVICE
+        )
+        .into()
+    }
+
+    fn status_topic() -> AtomicFixedString {
+        format!(
+            "{}/{}/{}/{}",
+            Self::TOPIC_STATUS,
+            Self::PROJECT,
+            Self::GROUP,
+            Self::DEVICE
+        )
+        .into()
+    }
+
+    fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
     where
         Self: Resource,
     {
         if let Some(this) = maybe_this {
             log::debug!("publishing {this:?}");
-            cmd.spawn(this.make_publish());
+            cmd.spawn(this.status_msg());
         }
     }
 
-    fn make_publish(&self) -> component::PublishMsg {
-        self.clone().into()
+    fn status_msg(&self) -> component::PublishMsg {
+        component::PublishMsg {
+            topic: Self::status_topic(),
+            payload: self.payload().into(),
+            qos: Self::STATUS_QOS,
+        }
     }
 }
 
 #[derive(Debug, Default)]
-pub struct SubscriptionsBuilder(Vec<(&'static str, Qos)>);
+pub struct SubscriptionsBuilder(Vec<(AtomicFixedString, Qos)>);
 impl SubscriptionsBuilder {
     pub fn with<'de, T: MqttMessage<'de>>(mut self) -> Self {
-        self.0.push((T::TOPIC, T::QOS));
+        if let Some(qos) = T::ACTION_QOS {
+            self.0.push((T::request_topic(), qos));
+        }
         self
     }
 
@@ -76,7 +122,7 @@ impl SubscriptionsBuilder {
 }
 
 #[derive(Component, Debug, Clone)]
-pub struct Subscriptions(Arc<[(&'static str, Qos)]>);
+pub struct Subscriptions(Arc<[(AtomicFixedString, Qos)]>);
 impl Subscriptions {
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> SubscriptionsBuilder {
@@ -177,7 +223,7 @@ impl MqttPlugin {
             create_opts: paho_mqtt::CreateOptions,
             conn_opts: paho_mqtt::ConnectOptions,
             stream_size: usize,
-            sub_info: Option<(Vec<&str>, Vec<i32>)>,
+            sub_info: Option<(Vec<AtomicFixedString>, Vec<i32>)>,
         ) -> Result<
             (
                 paho_mqtt::AsyncClient,
@@ -265,7 +311,12 @@ impl MqttPlugin {
                         let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
                         let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
                         let paho_subs = if !subscriptions.is_empty() {
-                            Some(subscriptions.iter().map(|(t, q)| (*t, *q as i32)).unzip())
+                            Some(
+                                subscriptions
+                                    .iter()
+                                    .map(|(t, q)| (t.clone(), *q as i32))
+                                    .unzip(),
+                            )
                         } else {
                             None
                         };
@@ -466,7 +517,7 @@ impl MqttPlugin {
                             let new_sub = subs.clone();
 
                             let (topics, qos): (Vec<_>, Vec<_>) =
-                                subs.iter().map(|(t, q)| (*t, *q as i32)).unzip();
+                                subs.iter().map(|(t, q)| (t.clone(), *q as i32)).unzip();
 
                             let handle = client.inner_client.subscribe_many(&topics, &qos);
 
@@ -569,7 +620,7 @@ struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::IncomingMessage>);
 
 #[allow(unused)]
 #[derive(Debug, Resource)]
-struct MqttSubscriptions(Vec<(&'static str, Qos)>);
+struct MqttSubscriptions(Vec<(AtomicFixedString, Qos)>);
 
 #[derive(Debug, Resource)]
 struct RestartTaskHandle(tokio::task::JoinHandle<()>);

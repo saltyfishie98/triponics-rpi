@@ -61,13 +61,17 @@ fn main() -> anyhow::Result<()> {
         .add_systems(
             Update,
             (
-                Counter::update,
-                Counter::publish.run_if(on_timer(Duration::from_secs(1))),
                 Counter::log_msg,
+                Counter::update,
+                Counter::publish_status.run_if(on_timer(Duration::from_secs(1))),
                 relay::GrowLight::update,
+                relay::GrowLight::publish_status.run_if(on_timer(Duration::from_secs(1))),
                 relay::Switch01::update,
+                relay::Switch01::publish_status.run_if(on_timer(Duration::from_secs(1))),
                 relay::Switch02::update,
+                relay::Switch02::publish_status.run_if(on_timer(Duration::from_secs(1))),
                 relay::Switch03::update,
+                relay::Switch03::publish_status.run_if(on_timer(Duration::from_secs(1))),
             ),
         )
         .run();
@@ -93,8 +97,12 @@ struct Counter {
     datetime: String,
 }
 impl mqtt::MqttMessage<'_> for Counter {
-    const TOPIC: &'static str = "data/triponics/counter/0";
-    const QOS: mqtt::Qos = mqtt::Qos::_1;
+    const PROJECT: &'static str = "triponics";
+    const GROUP: &'static str = "counter";
+    const DEVICE: &'static str = "0";
+
+    const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
+    const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
 }
 impl Counter {
     fn subscribe(mut cmd: Commands) {
@@ -127,11 +135,15 @@ mod relay {
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource)]
     pub struct GrowLight {
-        light_on: bool,
+        state: bool,
     }
     impl mqtt::MqttMessage<'_> for GrowLight {
-        const TOPIC: &'static str = "data/triponics/grow_light/0";
-        const QOS: mqtt::Qos = mqtt::Qos::_1;
+        const PROJECT: &'static str = "triponics";
+        const GROUP: &'static str = "growlight";
+        const DEVICE: &'static str = "0";
+
+        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
+        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl GrowLight {
         pub fn update(
@@ -151,19 +163,19 @@ mod relay {
                     pin.set_high();
                     pin
                 });
-                cmd.insert_resource(Self { light_on: false })
+                cmd.insert_resource(Self { state: false })
             }
 
             while let Some(incoming_msg) = ev_reader.read().next() {
                 if let Some(msg) = incoming_msg.get::<GrowLight>() {
                     let pin = pin.as_mut().unwrap();
 
-                    if msg.light_on {
+                    if msg.state {
                         pin.set_low();
-                        cmd.insert_resource(Self { light_on: true })
+                        cmd.insert_resource(Self { state: true })
                     } else {
                         pin.set_high();
-                        cmd.insert_resource(Self { light_on: false })
+                        cmd.insert_resource(Self { state: false })
                     }
                 }
             }
@@ -175,8 +187,12 @@ mod relay {
         state: bool,
     }
     impl mqtt::MqttMessage<'_> for Switch01 {
-        const TOPIC: &'static str = "data/triponics/switch_1/0";
-        const QOS: mqtt::Qos = mqtt::Qos::_1;
+        const PROJECT: &'static str = "triponics";
+        const GROUP: &'static str = "switch_1";
+        const DEVICE: &'static str = "0";
+
+        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
+        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl Switch01 {
         pub fn update(
@@ -220,8 +236,12 @@ mod relay {
         state: bool,
     }
     impl mqtt::MqttMessage<'_> for Switch02 {
-        const TOPIC: &'static str = "data/triponics/switch_2/0";
-        const QOS: mqtt::Qos = mqtt::Qos::_1;
+        const PROJECT: &'static str = "triponics";
+        const GROUP: &'static str = "switch_2";
+        const DEVICE: &'static str = "0";
+
+        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
+        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl Switch02 {
         pub fn update(
@@ -265,8 +285,12 @@ mod relay {
         state: bool,
     }
     impl mqtt::MqttMessage<'_> for Switch03 {
-        const TOPIC: &'static str = "data/triponics/switch_3/0";
-        const QOS: mqtt::Qos = mqtt::Qos::_1;
+        const PROJECT: &'static str = "triponics";
+        const GROUP: &'static str = "switch_3";
+        const DEVICE: &'static str = "0";
+
+        const STATUS_QOS: mqtt::Qos = mqtt::Qos::_1;
+        const ACTION_QOS: Option<mqtt::Qos> = Some(mqtt::Qos::_1);
     }
     impl Switch03 {
         pub fn update(
@@ -286,7 +310,7 @@ mod relay {
                     pin.set_high();
                     pin
                 });
-                cmd.insert_resource(Self { state: false })
+                cmd.insert_resource(Self { state: true })
             }
 
             while let Some(incoming_msg) = ev_reader.read().next() {
@@ -294,10 +318,10 @@ mod relay {
                     let pin = pin.as_mut().unwrap();
 
                     if msg.state {
-                        pin.set_low();
+                        pin.set_high();
                         cmd.insert_resource(Self { state: true })
                     } else {
-                        pin.set_high();
+                        pin.set_low();
                         cmd.insert_resource(Self { state: false })
                     }
                 }

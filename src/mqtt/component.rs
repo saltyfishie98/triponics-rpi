@@ -2,7 +2,7 @@ use bevy_ecs::component::Component;
 
 use crate::helper::{AtomicFixedBytes, AtomicFixedString};
 
-use super::{MqttMessage, Qos};
+use super::Qos;
 
 #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PublishMsg {
@@ -31,14 +31,5 @@ impl From<PublishMsg> for paho_mqtt::Message {
             qos,
         } = value;
         Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
-    }
-}
-impl<'de, T: MqttMessage<'de>> From<T> for PublishMsg {
-    fn from(value: T) -> Self {
-        PublishMsg {
-            topic: T::TOPIC.into(),
-            payload: value.payload().into(),
-            qos: T::QOS,
-        }
     }
 }

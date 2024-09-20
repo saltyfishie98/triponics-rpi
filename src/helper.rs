@@ -94,6 +94,11 @@ impl From<&'static str> for AtomicFixedString {
         Self(value.into())
     }
 }
+impl From<String> for AtomicFixedString {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
 impl From<AtomicFixedString> for Arc<str> {
     fn from(value: AtomicFixedString) -> Self {
         value.0
