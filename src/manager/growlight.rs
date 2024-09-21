@@ -10,75 +10,55 @@ pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.insert_resource(
-            SwitchManager::new()
+            GrowlightManager::new()
                 .map_err(|e| log::error!("\n{}", e.fmt_error()))
                 .unwrap(),
         )
-        .add_plugins(mqtt::add_on::ActionMessage::<SwitchManager>::new(
+        .add_plugins(mqtt::add_on::ActionMessage::<GrowlightManager>::new(
             Some(std::time::Duration::from_secs(1)), //
         ));
     }
 }
 
 #[derive(Debug, Resource)]
-pub struct SwitchManager {
-    gpio_switch_1: rppal::gpio::OutputPin,
-    gpio_switch_2: rppal::gpio::OutputPin,
-    gpio_switch_3: rppal::gpio::OutputPin,
+pub struct GrowlightManager {
+    gpio: rppal::gpio::OutputPin,
 }
-impl SwitchManager {
-    pub fn new() -> Result<Self> {
-        fn init_gpio(pin: u8) -> Result<rppal::gpio::OutputPin> {
-            let mut out = rppal::gpio::Gpio::new()
-                .map_err(|e| {
-                    error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
-                })?
-                .get(pin)
-                .map_err(|e| {
-                    error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
-                })?
-                .into_output();
+impl GrowlightManager {
+    fn new() -> Result<Self> {
+        let mut gpio = rppal::gpio::Gpio::new()
+            .map_err(|e| {
+                error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
+            })?
+            .get(constants::gpio::GROWLIGHT)
+            .map_err(|e| {
+                error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
+            })?
+            .into_output();
 
-            helper::relay::set_state(&mut out, helper::relay::State::Open);
-            Ok(out)
-        }
+        helper::relay::set_state(&mut gpio, helper::relay::State::Open);
 
-        Ok(Self {
-            gpio_switch_1: init_gpio(constants::gpio::SWITCH_1)?,
-            gpio_switch_2: init_gpio(constants::gpio::SWITCH_2)?,
-            gpio_switch_3: init_gpio(constants::gpio::SWITCH_3)?,
-        })
+        Ok(Self { gpio })
     }
 
     pub fn update_state(&mut self, request: action::Update) -> Result<()> {
-        fn update(pin: &mut rppal::gpio::OutputPin, new_state: Option<bool>) {
-            if let Some(request_state) = new_state {
-                let state = match request_state {
-                    true => helper::relay::State::Close,
-                    false => helper::relay::State::Open,
-                };
+        let state = match request.state {
+            true => helper::relay::State::Close,
+            false => helper::relay::State::Open,
+        };
 
-                helper::relay::set_state(pin, state);
-            }
-        }
-
-        update(&mut self.gpio_switch_1, request.switch_1);
-        update(&mut self.gpio_switch_2, request.switch_2);
-        update(&mut self.gpio_switch_3, request.switch_3);
-
+        helper::relay::set_state(&mut self.gpio, state);
         Ok(())
     }
 }
-impl mqtt::add_on::action_message::State for SwitchManager {
-    type Status = action::MqttStatus;
+impl mqtt::add_on::action_message::State for GrowlightManager {
     type Request = action::Update;
+    type Status = action::MqttStatus;
     type Response = action::MqttResponse;
 
     fn get_status(&self) -> Self::Status {
         Self::Status {
-            switch_1: helper::relay::get_state(&self.gpio_switch_1),
-            switch_2: helper::relay::get_state(&self.gpio_switch_2),
-            switch_3: !helper::relay::get_state(&self.gpio_switch_3),
+            state: helper::relay::get_state(&self.gpio),
         }
     }
 
@@ -95,17 +75,15 @@ impl mqtt::add_on::action_message::State for SwitchManager {
     }
 }
 
-mod action {
+pub mod action {
     use crate::{constants, helper::AtomicFixedString, mqtt};
 
-    const GROUP: &str = "switch";
+    const GROUP: &str = "growlight";
     const QOS: mqtt::Qos = mqtt::Qos::_1;
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Update {
-        pub switch_1: Option<bool>,
-        pub switch_2: Option<bool>,
-        pub switch_3: Option<bool>,
+        pub state: bool,
     }
     impl mqtt::add_on::action_message::Impl for Update {
         type Type = mqtt::add_on::action_message::action_type::Request;
@@ -117,9 +95,7 @@ mod action {
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct MqttStatus {
-        pub switch_1: bool,
-        pub switch_2: bool,
-        pub switch_3: bool,
+        pub state: bool,
     }
     impl mqtt::add_on::action_message::Impl for MqttStatus {
         type Type = mqtt::add_on::action_message::action_type::Status;
@@ -142,7 +118,7 @@ mod action {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("error setting up switch manager")]
+    #[error("error setting up growlight manager")]
     Setup,
 }
 

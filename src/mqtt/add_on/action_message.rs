@@ -98,7 +98,7 @@ where
         let _ = request;
         let _ = state;
 
-        log::trace!("received request -> {request:?}");
+        log::debug!("ignored received request -> {request:?}");
 
         None
     }

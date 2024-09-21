@@ -44,6 +44,7 @@ fn main() -> anyhow::Result<()> {
                 client_connect_options,
             },
             manager::switch::Plugin,
+            manager::growlight::Plugin,
         ))
         .add_systems(
             Startup,
