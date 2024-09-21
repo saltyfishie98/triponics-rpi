@@ -43,9 +43,7 @@ fn main() -> anyhow::Result<()> {
                 client_create_options,
                 client_connect_options,
             },
-            mqtt::add_on::ActionMessage::<manager::SwitchManager>::new(
-                Some(std::time::Duration::from_secs(1)), //
-            ),
+            manager::switch::Plugin,
         ))
         .add_systems(
             Startup,

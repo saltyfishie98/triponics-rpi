@@ -6,6 +6,20 @@ use crate::{
     log, mqtt,
 };
 
+pub struct Plugin;
+impl bevy_app::Plugin for Plugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.insert_resource(
+            SwitchManager::new()
+                .map_err(|e| log::error!("\n{}", e.fmt_error()))
+                .unwrap(),
+        )
+        .add_plugins(mqtt::add_on::ActionMessage::<SwitchManager>::new(
+            Some(std::time::Duration::from_secs(1)), //
+        ));
+    }
+}
+
 #[derive(Debug, Resource)]
 pub struct SwitchManager {
     gpio_switch_1: rppal::gpio::OutputPin,
@@ -38,38 +52,49 @@ impl SwitchManager {
 
         Ok(out)
     }
-}
-impl mqtt::add_on::action_message::State for SwitchManager {
-    type Status = action::Status;
-    type Request = action::Request;
-    type Response = action::Response;
 
-    fn init() -> Self {
-        Self::new()
-            .map_err(|e| log::error!("\n{}", e.fmt_error()))
-            .unwrap()
-    }
-
-    fn get_status(&self) -> Self::Status {
-        Self::Status {
-            switch_1: helper::relay::get_state(&self.gpio_switch_1),
-            switch_2: helper::relay::get_state(&self.gpio_switch_2),
-            switch_3: !helper::relay::get_state(&self.gpio_switch_3),
-        }
-    }
-
-    fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+    pub fn update_state(&mut self, request: action::Request) -> Result<()> {
         fn update(pin: &mut rppal::gpio::OutputPin, new_state: Option<bool>) {
             if let Some(state) = new_state {
                 helper::relay::set_state(pin, state);
             }
         }
 
-        update(&mut state.gpio_switch_1, request.switch_1);
-        update(&mut state.gpio_switch_2, request.switch_2);
-        update(&mut state.gpio_switch_3, request.switch_3);
+        update(&mut self.gpio_switch_1, request.switch_1);
+        update(&mut self.gpio_switch_2, request.switch_2);
+        update(&mut self.gpio_switch_3, request.switch_3);
 
-        Some(action::Response(Ok("changed state!".into())))
+        Ok(())
+    }
+}
+impl From<&SwitchManager> for action::Status {
+    fn from(value: &SwitchManager) -> Self {
+        Self {
+            switch_1: helper::relay::get_state(&value.gpio_switch_1),
+            switch_2: helper::relay::get_state(&value.gpio_switch_2),
+            switch_3: !helper::relay::get_state(&value.gpio_switch_3),
+        }
+    }
+}
+impl mqtt::add_on::action_message::State for SwitchManager {
+    type Status = action::Status;
+    type Request = action::Request;
+    type Response = action::Response;
+
+    fn get_status(&self) -> Self::Status {
+        self.into()
+    }
+
+    fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+        Some(action::Response(
+            state
+                .update_state(request)
+                .map(|_| "stated updated!".into())
+                .map_err(|e| {
+                    log::warn!("\n{}", e.fmt_error());
+                    "unknowned error!".into()
+                }),
+        ))
     }
 }
 

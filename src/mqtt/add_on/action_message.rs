@@ -4,7 +4,7 @@ use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::{Event, EventReader},
     schedule::IntoSystemConfigs,
-    system::{Commands, Local, Res, ResMut, Resource},
+    system::{Commands, Res, ResMut, Resource},
 };
 use bevy_internal::time::common_conditions::on_timer;
 
@@ -47,20 +47,14 @@ where
     fn state_update(
         mut cmd: Commands,
         mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-        mut state: Local<Option<T>>,
+        mut state: ResMut<T>,
         maybe_status: Option<ResMut<T::Status>>,
     ) {
-        if state.is_none() {
-            *state = Some(T::init());
-        }
-
-        let state = state.as_mut().unwrap();
-
         match maybe_status {
             Some(mut status) => {
                 while let Some(incoming_msg) = ev_reader.read().next() {
                     if let Some(request) = incoming_msg.get::<T::Request>() {
-                        if let Some(res) = T::update_state(request, state) {
+                        if let Some(res) = T::update_state(request, &mut state) {
                             cmd.spawn(res.into_message());
                             *(status.deref_mut()) = state.get_status();
                         }
@@ -101,13 +95,12 @@ where
 
 pub trait State
 where
-    Self: Sized + Send + Sync + 'static,
+    Self: Resource + Sized + Send + Sync + 'static,
 {
     type Request: Impl<Type = action_type::Request>;
     type Status: Impl<Type = action_type::Status> + Resource;
     type Response: Impl<Type = action_type::Response>;
 
-    fn init() -> Self;
     fn get_status(&self) -> Self::Status;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
