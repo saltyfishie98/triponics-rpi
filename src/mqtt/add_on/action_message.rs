@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::DerefMut};
+use std::marker::PhantomData;
 
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
@@ -48,30 +48,21 @@ where
         mut cmd: Commands,
         mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
         mut state: ResMut<T>,
-        maybe_status: Option<ResMut<T::Status>>,
     ) {
-        match maybe_status {
-            Some(mut status) => {
-                while let Some(incoming_msg) = ev_reader.read().next() {
-                    if let Some(request) = incoming_msg.get::<T::Request>() {
-                        if let Some(res) = T::update_state(request, &mut state) {
-                            cmd.spawn(res.into_message());
-                            *(status.deref_mut()) = state.get_status();
-                        }
-                    }
+        while let Some(incoming_msg) = ev_reader.read().next() {
+            if let Some(request) = incoming_msg.get::<T::Request>() {
+                if let Some(res) = T::update_state(request, &mut state) {
+                    cmd.spawn(res.into_message());
                 }
-            }
-            None => {
-                cmd.insert_resource(state.get_status());
             }
         }
     }
 
-    fn publish_status(mut cmd: Commands, maybe_status: Option<Res<T::Status>>) {
-        if let Some(status) = maybe_status {
+    fn publish_status(mut cmd: Commands, maybe_state: Option<Res<T>>) {
+        if let Some(state) = maybe_state {
             cmd.spawn(component::PublishMsg {
                 topic: T::Status::topic(),
-                payload: status.clone().to_payload(),
+                payload: state.get_status().to_payload(),
                 qos: T::Status::qos(),
             });
         }
@@ -98,7 +89,7 @@ where
     Self: Resource + Sized + Send + Sync + 'static,
 {
     type Request: Impl<Type = action_type::Request>;
-    type Status: Impl<Type = action_type::Status> + Resource;
+    type Status: Impl<Type = action_type::Status>;
     type Response: Impl<Type = action_type::Response>;
 
     fn get_status(&self) -> Self::Status;

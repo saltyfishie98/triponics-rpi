@@ -67,7 +67,7 @@ impl SwitchManager {
         Ok(())
     }
 }
-impl From<&SwitchManager> for action::Status {
+impl From<&SwitchManager> for action::MqttStatus {
     fn from(value: &SwitchManager) -> Self {
         Self {
             switch_1: helper::relay::get_state(&value.gpio_switch_1),
@@ -77,16 +77,16 @@ impl From<&SwitchManager> for action::Status {
     }
 }
 impl mqtt::add_on::action_message::State for SwitchManager {
-    type Status = action::Status;
+    type Status = action::MqttStatus;
     type Request = action::Request;
-    type Response = action::Response;
+    type Response = action::MqttResponse;
 
     fn get_status(&self) -> Self::Status {
         self.into()
     }
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
-        Some(action::Response(
+        Some(action::MqttResponse(
             state
                 .update_state(request)
                 .map(|_| "stated updated!".into())
@@ -99,8 +99,6 @@ impl mqtt::add_on::action_message::State for SwitchManager {
 }
 
 mod action {
-    use bevy_ecs::system::Resource;
-
     use crate::{constants, helper::AtomicFixedString, mqtt};
 
     const GROUP: &str = "switch";
@@ -120,13 +118,13 @@ mod action {
         const QOS: mqtt::Qos = QOS;
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Resource)]
-    pub struct Status {
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct MqttStatus {
         pub switch_1: bool,
         pub switch_2: bool,
         pub switch_3: bool,
     }
-    impl mqtt::add_on::action_message::Impl for Status {
+    impl mqtt::add_on::action_message::Impl for MqttStatus {
         type Type = mqtt::add_on::action_message::action_type::Status;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
@@ -135,8 +133,8 @@ mod action {
     }
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct Response(pub Result<AtomicFixedString, AtomicFixedString>);
-    impl mqtt::add_on::action_message::Impl for Response {
+    pub struct MqttResponse(pub Result<AtomicFixedString, AtomicFixedString>);
+    impl mqtt::add_on::action_message::Impl for MqttResponse {
         type Type = mqtt::add_on::action_message::action_type::Response;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
