@@ -44,7 +44,6 @@ pub trait ActionMessageHandler
 where
     Self: MqttMessage,
 {
-    type State;
     type Request: ActionMessage;
     type Status: ActionMessage;
     type Response: ActionMessage;

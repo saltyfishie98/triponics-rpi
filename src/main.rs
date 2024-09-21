@@ -43,10 +43,10 @@ fn main() -> anyhow::Result<()> {
             client_create_options,
             client_connect_options,
             initial_subscriptions: mqtt::Subscriptions::new()
-                .with_action_msg::<msg::relay::growlight::State>()
-                .with_action_msg::<msg::relay::switch_1::State>()
-                .with_action_msg::<msg::relay::switch_2::State>()
-                .with_action_msg::<msg::relay::switch_3::State>()
+                .with_action_msg::<msg::relay::growlight::Message>()
+                .with_action_msg::<msg::relay::switch_1::Message>()
+                .with_action_msg::<msg::relay::switch_2::Message>()
+                .with_action_msg::<msg::relay::switch_3::Message>()
                 .finalize(),
         })
         .add_systems(

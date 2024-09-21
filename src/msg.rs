@@ -43,18 +43,17 @@ pub mod relay {
         #[derive(
             Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource,
         )]
-        pub struct State {
+        pub struct Message {
             state: bool,
         }
-        impl ActionMessage for State {
+        impl ActionMessage for Message {
             type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
         }
-        impl ActionMessageHandler for State {
-            type State = Self;
+        impl ActionMessageHandler for Message {
             type Status = Self;
             type Request = Request;
             type Response = Response;
@@ -77,21 +76,21 @@ pub mod relay {
                             pin.set_high();
                             pin
                         });
-                        cmd.insert_resource(State { state: false })
+                        cmd.insert_resource(Message { state: false })
                     }
 
                     while let Some(incoming_msg) = ev_reader.read().next() {
                         if let Some(msg) = incoming_msg
-                            .get_action_msg::<<State as ActionMessageHandler>::Request>()
+                            .get_action_msg::<<Message as ActionMessageHandler>::Request>()
                         {
                             let pin = pin.as_mut().unwrap();
 
                             if msg.state {
                                 pin.set_low();
-                                cmd.insert_resource(State { state: true })
+                                cmd.insert_resource(Message { state: true })
                             } else {
                                 pin.set_high();
-                                cmd.insert_resource(State { state: false })
+                                cmd.insert_resource(Message { state: false })
                             }
                         }
                     }
@@ -138,18 +137,17 @@ pub mod relay {
         #[derive(
             Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource,
         )]
-        pub struct State {
+        pub struct Message {
             state: bool,
         }
-        impl ActionMessage for State {
+        impl ActionMessage for Message {
             type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
         }
-        impl ActionMessageHandler for State {
-            type State = Self;
+        impl ActionMessageHandler for Message {
             type Status = Self;
             type Request = Request;
             type Response = Response;
@@ -172,21 +170,21 @@ pub mod relay {
                             pin.set_high();
                             pin
                         });
-                        cmd.insert_resource(State { state: false })
+                        cmd.insert_resource(Message { state: false })
                     }
 
                     while let Some(incoming_msg) = ev_reader.read().next() {
                         if let Some(msg) = incoming_msg
-                            .get_action_msg::<<State as ActionMessageHandler>::Request>()
+                            .get_action_msg::<<Message as ActionMessageHandler>::Request>()
                         {
                             let pin = pin.as_mut().unwrap();
 
                             if msg.state {
                                 pin.set_low();
-                                cmd.insert_resource(State { state: true })
+                                cmd.insert_resource(Message { state: true })
                             } else {
                                 pin.set_high();
-                                cmd.insert_resource(State { state: false })
+                                cmd.insert_resource(Message { state: false })
                             }
                         }
                     }
@@ -233,18 +231,17 @@ pub mod relay {
         #[derive(
             Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource,
         )]
-        pub struct State {
+        pub struct Message {
             state: bool,
         }
-        impl ActionMessage for State {
+        impl ActionMessage for Message {
             type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
         }
-        impl ActionMessageHandler for State {
-            type State = Self;
+        impl ActionMessageHandler for Message {
             type Status = Self;
             type Request = Request;
             type Response = Response;
@@ -267,21 +264,21 @@ pub mod relay {
                             pin.set_high();
                             pin
                         });
-                        cmd.insert_resource(State { state: false })
+                        cmd.insert_resource(Message { state: false })
                     }
 
                     while let Some(incoming_msg) = ev_reader.read().next() {
                         if let Some(msg) = incoming_msg
-                            .get_action_msg::<<State as ActionMessageHandler>::Request>()
+                            .get_action_msg::<<Message as ActionMessageHandler>::Request>()
                         {
                             let pin = pin.as_mut().unwrap();
 
                             if msg.state {
                                 pin.set_low();
-                                cmd.insert_resource(State { state: true })
+                                cmd.insert_resource(Message { state: true })
                             } else {
                                 pin.set_high();
-                                cmd.insert_resource(State { state: false })
+                                cmd.insert_resource(Message { state: false })
                             }
                         }
                     }
@@ -328,18 +325,17 @@ pub mod relay {
         #[derive(
             Debug, Clone, serde::Serialize, serde::Deserialize, bevy_ecs::system::Resource,
         )]
-        pub struct State {
+        pub struct Message {
             state: bool,
         }
-        impl ActionMessage for State {
+        impl ActionMessage for Message {
             type Type = mqtt::add_on::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_3";
             const DEVICE: &'static str = "0";
             const QOS: mqtt::Qos = mqtt::Qos::_1;
         }
-        impl ActionMessageHandler for State {
-            type State = Self;
+        impl ActionMessageHandler for Message {
             type Status = Self;
             type Request = Request;
             type Response = Response;
@@ -362,21 +358,21 @@ pub mod relay {
                             pin.set_high();
                             pin
                         });
-                        cmd.insert_resource(State { state: true })
+                        cmd.insert_resource(Message { state: true })
                     }
 
                     while let Some(incoming_msg) = ev_reader.read().next() {
                         if let Some(msg) = incoming_msg
-                            .get_action_msg::<<State as ActionMessageHandler>::Request>()
+                            .get_action_msg::<<Message as ActionMessageHandler>::Request>()
                         {
                             let pin = pin.as_mut().unwrap();
 
                             if msg.state {
                                 pin.set_high();
-                                cmd.insert_resource(State { state: true })
+                                cmd.insert_resource(Message { state: true })
                             } else {
                                 pin.set_low();
-                                cmd.insert_resource(State { state: false })
+                                cmd.insert_resource(Message { state: false })
                             }
                         }
                     }
