@@ -1,7 +1,8 @@
 mod config;
+mod constants;
 mod helper;
+mod manager;
 mod mqtt;
-mod msg;
 
 use std::time::Duration;
 
@@ -12,9 +13,7 @@ use bevy_ecs::{
 };
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
-
 use time::macros::offset;
-#[allow(unused_imports)]
 use tracing as log;
 
 fn main() -> anyhow::Result<()> {
@@ -39,16 +38,15 @@ fn main() -> anyhow::Result<()> {
             ))),
             TokioTasksPlugin::default(),
         ))
-        .add_plugins(mqtt::MqttPlugin {
-            client_create_options,
-            client_connect_options,
-            initial_subscriptions: mqtt::Subscriptions::new()
-                .with_action_msg::<msg::relay::growlight::Message>()
-                .with_action_msg::<msg::relay::switch_1::Message>()
-                .with_action_msg::<msg::relay::switch_2::Message>()
-                .with_action_msg::<msg::relay::switch_3::Message>()
-                .finalize(),
-        })
+        .add_plugins((
+            mqtt::MqttPlugin {
+                client_create_options,
+                client_connect_options,
+            },
+            mqtt::add_on::ActionMessage::<manager::SwitchManager>::new(
+                Some(std::time::Duration::from_secs(1)), //
+            ),
+        ))
         .add_systems(
             Startup,
             (
@@ -94,12 +92,7 @@ impl Counter {
             data: 0,
             datetime: m_::local_time_now_str(),
         });
-        cmd.spawn(
-            mqtt::Subscriptions::new()
-                .with_msg::<Counter>()
-                .finalize()
-                .0,
-        );
+        cmd.spawn(mqtt::Subscriptions::new().with_msg::<Counter>().finalize());
     }
 
     fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessage>) {

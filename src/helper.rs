@@ -158,3 +158,26 @@ fn channel_to_event<T: 'static + Send + Sync + Event>(
     let events = receiver.lock().expect("unable to acquire mutex lock");
     writer.send_batch(events.try_iter());
 }
+
+pub trait ErrorLogFormat {
+    fn fmt_error(&self) -> AtomicFixedString;
+}
+impl<E: std::error::Error> ErrorLogFormat for error_stack::Report<E> {
+    fn fmt_error(&self) -> AtomicFixedString {
+        format!("\n{self:?}\n").into()
+    }
+}
+
+pub mod relay {
+    pub fn get_state(pin: &rppal::gpio::OutputPin) -> bool {
+        pin.is_set_low()
+    }
+
+    pub fn set_state(pin: &mut rppal::gpio::OutputPin, new_state: bool) {
+        if new_state {
+            pin.set_low();
+        } else {
+            pin.set_high();
+        }
+    }
+}

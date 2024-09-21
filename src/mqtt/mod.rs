@@ -11,7 +11,7 @@ pub use wrapper::*;
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock, RwLock},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
@@ -22,7 +22,7 @@ use bevy_ecs::{
     event::{EventReader, EventWriter},
     prelude::on_event,
     query::With,
-    schedule::{IntoSystemConfigs, SystemConfigs},
+    schedule::IntoSystemConfigs,
     system::{Commands, Local, Query, Res, ResMut, Resource},
     world::World,
 };
@@ -34,38 +34,6 @@ use tokio::sync::Mutex;
 use crate::helper::{AsyncEventExt, AtomicFixedBytes, AtomicFixedString};
 #[allow(unused_imports)]
 use tracing as log;
-
-// pub trait SystemStateMsgHandler
-// where
-//     Self: MqttMessage,
-// {
-//     fn update() -> SystemConfigs;
-//     fn status() -> Option<SystemConfigs> {
-//         None
-//     }
-
-//     fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
-//     where
-//         Self: Resource,
-//     {
-//         if let Some(this) = maybe_this {
-//             if let Some(msg) = this.status_msg() {
-//                 log::trace!("publishing {this:?}");
-//                 cmd.spawn(msg);
-//             } else {
-//                 log::trace!("status msg publishing disabled, current status: {this:?}");
-//             }
-//         }
-//     }
-
-//     fn status_msg(&self) -> Option<component::PublishMsg> {
-//         Self::status_topic().map(|topic| component::PublishMsg {
-//             topic,
-//             payload: self.to_payload(),
-//             qos: Self::Qos,
-//         })
-//     }
-// }
 
 pub trait MqttMessage
 where
@@ -79,12 +47,19 @@ where
         serde_json::to_writer(&mut out, self).unwrap();
         out.into()
     }
+
+    fn into_message(self) -> component::PublishMsg {
+        component::PublishMsg {
+            topic: Self::topic(),
+            payload: self.to_payload(),
+            qos: Self::qos(),
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct SubscriptionsBuilder {
     subs: Vec<(AtomicFixedString, Qos)>,
-    systems: Vec<SystemConfigs>,
 }
 impl SubscriptionsBuilder {
     pub fn with_msg<T: MqttMessage>(mut self) -> Self {
@@ -92,20 +67,8 @@ impl SubscriptionsBuilder {
         self
     }
 
-    pub fn with_action_msg<T: add_on::action_message::ActionMessageHandler>(mut self) -> Self {
-        self.subs.push((T::Request::topic(), T::Request::qos()));
-        if let Some(system) = T::on_request() {
-            self.systems.push(system);
-        }
-        if let Some(system) = T::status_publish() {
-            self.systems.push(system);
-        }
-
-        self
-    }
-
-    pub fn finalize(self) -> (Subscriptions, RwLock<Vec<SystemConfigs>>) {
-        (Subscriptions(self.subs.into()), RwLock::new(self.systems))
+    pub fn finalize(self) -> Subscriptions {
+        Subscriptions(self.subs.into())
     }
 }
 
@@ -121,7 +84,6 @@ impl Subscriptions {
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
-    pub initial_subscriptions: (Subscriptions, RwLock<Vec<SystemConfigs>>),
 }
 impl Plugin for MqttPlugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -131,23 +93,11 @@ impl Plugin for MqttPlugin {
         let Self {
             client_create_options,
             client_connect_options,
-            initial_subscriptions: subs,
         } = self;
-
-        match self.initial_subscriptions.1.try_write() {
-            Ok(mut a) => {
-                a.drain(..).for_each(|f| {
-                    app.add_systems(Update, f);
-                });
-            }
-            Err(_) => {
-                todo!()
-            }
-        }
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(MqttSubscriptions(subs.0.clone().0.to_vec()))
+            .insert_resource(MqttSubscriptions(Vec::new()))
             .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(MqttCacheManager::new(
                 client_create_options.client_id.clone(),

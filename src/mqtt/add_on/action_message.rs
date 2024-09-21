@@ -1,17 +1,158 @@
+use std::{marker::PhantomData, ops::DerefMut};
+
+use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
-    schedule::SystemConfigs,
-    system::{Commands, Res, Resource},
+    event::{Event, EventReader},
+    schedule::IntoSystemConfigs,
+    system::{Commands, Local, Res, ResMut, Resource},
 };
+use bevy_internal::time::common_conditions::on_timer;
 
 use super::super::{component, MqttMessage, Qos};
+use crate::mqtt;
+
+#[allow(unused_imports)]
 use crate::log;
+
+#[derive(Debug, Event)]
+pub struct StatusUpdate<T: State>(T::Status);
+
+pub struct ActionMessage<T>
+where
+    T: State,
+{
+    _p: PhantomData<T>,
+    status_publish_duration: Option<std::time::Duration>,
+}
+impl<T> ActionMessage<T>
+where
+    T: State,
+    T::Status: Send + Sync + 'static,
+{
+    pub fn new(status_publish_duration: Option<std::time::Duration>) -> Self {
+        Self {
+            _p: PhantomData::<T>,
+            status_publish_duration,
+        }
+    }
+
+    fn subscribe_request(mut cmd: Commands) {
+        cmd.spawn(
+            mqtt::Subscriptions::new()
+                .with_msg::<T::Request>()
+                .finalize(),
+        );
+    }
+
+    fn state_update(
+        mut cmd: Commands,
+        mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
+        mut state: Local<Option<T>>,
+        maybe_status: Option<ResMut<T::Status>>,
+    ) {
+        if state.is_none() {
+            *state = Some(T::init());
+        }
+
+        let state = state.as_mut().unwrap();
+
+        match maybe_status {
+            Some(mut status) => {
+                while let Some(incoming_msg) = ev_reader.read().next() {
+                    if let Some(request) = incoming_msg.get::<T::Request>() {
+                        if let Some(res) = T::update_state(request, state) {
+                            cmd.spawn(res.into_message());
+                            *(status.deref_mut()) = state.get_status();
+                        }
+                    }
+                }
+            }
+            None => {
+                cmd.insert_resource(state.get_status());
+            }
+        }
+    }
+
+    fn publish_status(mut cmd: Commands, maybe_status: Option<Res<T::Status>>) {
+        if let Some(status) = maybe_status {
+            cmd.spawn(component::PublishMsg {
+                topic: T::Status::topic(),
+                payload: status.clone().to_payload(),
+                qos: T::Status::qos(),
+            });
+        }
+    }
+}
+impl<T> Plugin for ActionMessage<T>
+where
+    T: State,
+    T::Status: Send + Sync + 'static,
+{
+    fn build(&self, app: &mut bevy_app::App) {
+        app.add_event::<StatusUpdate<T>>()
+            .add_systems(Startup, Self::subscribe_request)
+            .add_systems(Update, Self::state_update);
+
+        if let Some(duration) = self.status_publish_duration {
+            app.add_systems(Update, Self::publish_status.run_if(on_timer(duration)));
+        }
+    }
+}
+
+pub trait State
+where
+    Self: Sized + Send + Sync + 'static,
+{
+    type Request: Impl<Type = action_type::Request>;
+    type Status: Impl<Type = action_type::Status> + Resource;
+    type Response: Impl<Type = action_type::Response>;
+
+    fn init() -> Self;
+    fn get_status(&self) -> Self::Status;
+
+    fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+        let _ = request;
+        let _ = state;
+
+        log::trace!("received request -> {request:?}");
+
+        None
+    }
+}
+
+pub trait Impl
+where
+    Self: MqttMessage + ActionPrefix,
+{
+    type Type: ActionType; // needed for MqttMessage blanket impl
+    const PROJECT: &'static str;
+    const GROUP: &'static str;
+    const DEVICE: &'static str;
+    const QOS: Qos;
+}
+impl<T: Impl> MqttMessage for T {
+    fn topic() -> crate::helper::AtomicFixedString {
+        format!(
+            "{}/{}/{}/{}",
+            T::Type::prefix::<T>(),
+            T::PROJECT,
+            T::GROUP,
+            T::DEVICE
+        )
+        .into()
+    }
+
+    fn qos() -> Qos {
+        T::QOS
+    }
+}
 
 pub trait ActionPrefix {
     const STATUS_PREFIX: &'static str = "data";
     const REQUEST_PREFIX: &'static str = "request";
     const RESPONSE_PREFIX: &'static str = "response";
 }
-impl<T: ActionMessage> ActionPrefix for T {}
+impl<T: Impl> ActionPrefix for T {}
 
 pub trait ActionType {
     fn prefix<T: ActionPrefix>() -> &'static str;
@@ -37,70 +178,5 @@ pub mod action_type {
         fn prefix<T: super::ActionPrefix>() -> &'static str {
             T::RESPONSE_PREFIX
         }
-    }
-}
-
-pub trait ActionMessageHandler
-where
-    Self: MqttMessage,
-{
-    type Request: ActionMessage;
-    type Status: ActionMessage;
-    type Response: ActionMessage;
-
-    fn on_request() -> Option<SystemConfigs> {
-        None
-    }
-
-    fn status_publish() -> Option<SystemConfigs> {
-        None
-    }
-
-    fn publish_status(mut cmd: Commands, maybe_this: Option<Res<Self>>)
-    where
-        Self: Resource + ActionMessage<Type = action_type::Status>,
-    {
-        if let Some(this) = maybe_this {
-            log::trace!("publishing {this:?}");
-            cmd.spawn(this.status_msg());
-        }
-    }
-
-    fn status_msg(&self) -> component::PublishMsg
-    where
-        Self: ActionMessage<Type = action_type::Status>,
-    {
-        component::PublishMsg {
-            topic: Self::topic(),
-            payload: self.to_payload(),
-            qos: Self::qos(),
-        }
-    }
-}
-
-pub trait ActionMessage
-where
-    Self: MqttMessage + ActionPrefix,
-{
-    type Type: ActionType;
-    const PROJECT: &'static str;
-    const GROUP: &'static str;
-    const DEVICE: &'static str;
-    const QOS: Qos;
-}
-impl<T: ActionMessage> MqttMessage for T {
-    fn topic() -> crate::helper::AtomicFixedString {
-        format!(
-            "{}/{}/{}/{}",
-            T::Type::prefix::<T>(),
-            T::PROJECT,
-            T::GROUP,
-            T::DEVICE
-        )
-        .into()
-    }
-
-    fn qos() -> Qos {
-        T::QOS
     }
 }
