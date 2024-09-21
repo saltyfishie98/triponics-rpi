@@ -51,20 +51,27 @@ impl SwitchManager {
     }
 
     pub fn update_state(&mut self, request: action::Update) -> Result<()> {
-        fn update(pin: &mut rppal::gpio::OutputPin, new_state: Option<bool>) {
+        fn update(pin: &mut rppal::gpio::OutputPin, new_state: Option<bool>, flip: bool) {
             if let Some(request_state) = new_state {
-                let state = match request_state {
-                    true => helper::relay::State::Close,
-                    false => helper::relay::State::Open,
+                let state = if !flip {
+                    match request_state {
+                        true => helper::relay::State::Close,
+                        false => helper::relay::State::Open,
+                    }
+                } else {
+                    match request_state {
+                        true => helper::relay::State::Open,
+                        false => helper::relay::State::Close,
+                    }
                 };
 
                 helper::relay::set_state(pin, state);
             }
         }
 
-        update(&mut self.gpio_switch_1, request.switch_1);
-        update(&mut self.gpio_switch_2, request.switch_2);
-        update(&mut self.gpio_switch_3, request.switch_3);
+        update(&mut self.gpio_switch_1, request.switch_1, false);
+        update(&mut self.gpio_switch_2, request.switch_2, false);
+        update(&mut self.gpio_switch_3, request.switch_3, true);
 
         Ok(())
     }
