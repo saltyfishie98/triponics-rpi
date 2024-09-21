@@ -92,7 +92,7 @@ impl SubscriptionsBuilder {
         self
     }
 
-    pub fn with_action_msg<T: add_on::ActionMessageHandler>(mut self) -> Self {
+    pub fn with_action_msg<T: add_on::action_message::ActionMessageHandler>(mut self) -> Self {
         self.subs.push((T::Request::topic(), T::Request::qos()));
         if let Some(system) = T::on_request() {
             self.systems.push(system);

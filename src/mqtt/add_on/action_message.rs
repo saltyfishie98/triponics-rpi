@@ -3,7 +3,7 @@ use bevy_ecs::{
     system::{Commands, Res, Resource},
 };
 
-use super::{component, MqttMessage, Qos};
+use super::super::{component, MqttMessage, Qos};
 use crate::log;
 
 pub trait ActionPrefix {
@@ -100,7 +100,7 @@ impl<T: ActionMessage> MqttMessage for T {
         .into()
     }
 
-    fn qos() -> super::Qos {
+    fn qos() -> Qos {
         T::QOS
     }
 }

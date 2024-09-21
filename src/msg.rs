@@ -11,7 +11,7 @@ pub mod relay {
 
     use bevy_ecs::schedule::IntoSystemConfigs;
     use bevy_internal::time::common_conditions::on_timer;
-    use mqtt::add_on::{ActionMessage, ActionMessageHandler};
+    use mqtt::add_on::action_message::{ActionMessage, ActionMessageHandler};
 
     use super::*;
 
@@ -23,7 +23,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
+            type Type = mqtt::add_on::action_message::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
@@ -33,7 +33,7 @@ pub mod relay {
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
         impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
+            type Type = mqtt::add_on::action_message::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
@@ -47,7 +47,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Message {
-            type Type = mqtt::add_on::action_type::Status;
+            type Type = mqtt::add_on::action_message::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "growlight";
             const DEVICE: &'static str = "0";
@@ -117,7 +117,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
+            type Type = mqtt::add_on::action_message::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
@@ -127,7 +127,7 @@ pub mod relay {
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
         impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
+            type Type = mqtt::add_on::action_message::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
@@ -141,7 +141,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Message {
-            type Type = mqtt::add_on::action_type::Status;
+            type Type = mqtt::add_on::action_message::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_1";
             const DEVICE: &'static str = "0";
@@ -211,7 +211,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
+            type Type = mqtt::add_on::action_message::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
@@ -221,7 +221,7 @@ pub mod relay {
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
         impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
+            type Type = mqtt::add_on::action_message::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
@@ -235,7 +235,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Message {
-            type Type = mqtt::add_on::action_type::Status;
+            type Type = mqtt::add_on::action_message::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
@@ -305,7 +305,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Request {
-            type Type = mqtt::add_on::action_type::Request;
+            type Type = mqtt::add_on::action_message::action_type::Request;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
@@ -315,7 +315,7 @@ pub mod relay {
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct Response;
         impl ActionMessage for Response {
-            type Type = mqtt::add_on::action_type::Response;
+            type Type = mqtt::add_on::action_message::action_type::Response;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_2";
             const DEVICE: &'static str = "0";
@@ -329,7 +329,7 @@ pub mod relay {
             state: bool,
         }
         impl ActionMessage for Message {
-            type Type = mqtt::add_on::action_type::Status;
+            type Type = mqtt::add_on::action_message::action_type::Status;
             const PROJECT: &'static str = "triponics";
             const GROUP: &'static str = "switch_3";
             const DEVICE: &'static str = "0";

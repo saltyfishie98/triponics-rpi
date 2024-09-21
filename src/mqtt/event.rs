@@ -1,9 +1,6 @@
 use bevy_ecs::event::Event;
 
-use super::{
-    add_on::{self, ActionMessage},
-    MqttMessage,
-};
+use super::{add_on, MqttMessage};
 use tracing as log;
 
 #[derive(Debug, Event)]
@@ -28,7 +25,9 @@ impl IncomingMessage {
         }
     }
 
-    pub fn get_action_msg<T: ActionMessage<Type = add_on::action_type::Request>>(
+    pub fn get_action_msg<
+        T: add_on::ActionMessage<Type = add_on::action_message::action_type::Request>,
+    >(
         &self,
     ) -> Option<T> {
         let msg = self.0.clone();
