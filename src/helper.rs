@@ -109,6 +109,11 @@ impl AsRef<str> for AtomicFixedString {
         self.0.as_ref()
     }
 }
+impl std::fmt::Display for AtomicFixedString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 // This introduces event channels, on one side of which is mpsc::Sender<T>, and on another
 // side is bevy's EventReader<T>, and it automatically bridges between the two.

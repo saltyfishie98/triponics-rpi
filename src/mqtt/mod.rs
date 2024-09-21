@@ -191,6 +191,7 @@ impl MqttPlugin {
                 match msg {
                     Some(msg) => {
                         log::trace!("polled mqtt msg");
+                        log::debug!("received msg -> {}: {}", msg.topic(), msg.payload_str());
                         if let Err(e) = mqtt_msg_tx.send(event::IncomingMessage(msg)) {
                             log::warn!("{e}");
                         }
