@@ -2,7 +2,12 @@ use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
 
 use super::switch;
-use crate::{helper::ErrorLogFormat, log};
+use crate::{
+    helper::ErrorLogFormat,
+    log,
+    mqtt::{self, add_on::action_message::StatusMessage},
+    timezone_offset,
+};
 
 pub struct Plugin {
     pub config: Config,
@@ -11,6 +16,9 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<AeroponicSprayManager>()
             .insert_resource(self.config.clone())
+            .add_plugins(StatusMessage::<AeroponicSprayManager>::publish_interval(
+                Some(std::time::Duration::from_secs(1)),
+            ))
             .add_systems(
                 Update,
                 (
@@ -92,5 +100,41 @@ impl Default for AeroponicSprayManager {
             db_conn: std::sync::Mutex::new(conn),
             next_spray_time: time::OffsetDateTime::now_utc(),
         }
+    }
+}
+impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {
+    type Status = action::Status;
+
+    fn get_status(&self) -> Self::Status {
+        let next_spray_time = if !self.state {
+            self.next_spray_time
+                .to_offset(*timezone_offset())
+                .to_string()
+                .into()
+        } else {
+            "".into()
+        };
+
+        Self::Status {
+            sprayer_state: self.state,
+            next_spray_time,
+        }
+    }
+}
+
+pub mod action {
+    use crate::{constants, helper::AtomicFixedString, mqtt};
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Status {
+        pub sprayer_state: bool,
+        pub next_spray_time: AtomicFixedString,
+    }
+    impl mqtt::add_on::action_message::MessageImpl for Status {
+        type Type = mqtt::add_on::action_message::action_type::Status;
+        const PROJECT: &'static str = constants::project::NAME;
+        const GROUP: &'static str = "aeroponics";
+        const DEVICE: &'static str = constants::project::DEVICE;
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
     }
 }

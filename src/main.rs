@@ -73,6 +73,12 @@ fn data_directory() -> &'static std::path::Path {
     DATA_DIRECTORY.as_path()
 }
 
+fn timezone_offset() -> &'static time::UtcOffset {
+    static TIMEZONE_OFFSET: LazyLock<time::UtcOffset> = LazyLock::new(|| time::macros::offset!(+8));
+
+    &TIMEZONE_OFFSET
+}
+
 mod local {
     use super::*;
 
