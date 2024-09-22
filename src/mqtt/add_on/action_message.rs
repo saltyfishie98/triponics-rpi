@@ -1,12 +1,11 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::RwLock};
 
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::{Event, EventReader},
-    schedule::IntoSystemConfigs,
-    system::{Commands, Res, ResMut, Resource},
+    schedule::{Condition, IntoSystemConfigs, SystemConfigs},
+    system::{Commands, IntoSystem, Res, ResMut, Resource},
 };
-use bevy_internal::time::common_conditions::on_timer;
 
 use super::super::Qos;
 use crate::mqtt::{
@@ -91,17 +90,21 @@ where
     T: PublishStatus,
 {
     _p: PhantomData<T>,
-    status_publish_duration: Option<std::time::Duration>,
+    system_configs: RwLock<Option<SystemConfigs>>,
 }
 impl<T> StatusMessage<T>
 where
     T: PublishStatus,
     T::Status: Send + Sync + 'static,
 {
-    pub fn publish_interval(status_publish_duration: Option<std::time::Duration>) -> Self {
+    pub fn publish_condition<M>(condition: impl Condition<M>) -> Self {
         Self {
             _p: PhantomData::<T>,
-            status_publish_duration,
+            system_configs: RwLock::new(Some(
+                IntoSystem::into_system(Self::publish_status)
+                    .run_if(condition)
+                    .into_configs(),
+            )),
         }
     }
 
@@ -121,12 +124,11 @@ where
     T::Status: Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<T>()
-            .add_event::<local::StatusUpdate<T>>();
+        let system = self.system_configs.write().unwrap().take().unwrap();
 
-        if let Some(duration) = self.status_publish_duration {
-            app.add_systems(Update, Self::publish_status.run_if(on_timer(duration)));
-        }
+        app.init_resource::<T>()
+            .add_event::<local::StatusUpdate<T>>()
+            .add_systems(Update, system);
     }
 }
 

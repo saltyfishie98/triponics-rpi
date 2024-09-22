@@ -1,5 +1,6 @@
 use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
+use bevy_internal::time::common_conditions::on_timer;
 
 use super::switch;
 use crate::{
@@ -16,8 +17,8 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<AeroponicSprayManager>()
             .insert_resource(self.config.clone())
-            .add_plugins(StatusMessage::<AeroponicSprayManager>::publish_interval(
-                Some(std::time::Duration::from_secs(1)),
+            .add_plugins(StatusMessage::<AeroponicSprayManager>::publish_condition(
+                on_timer(std::time::Duration::from_secs(1)),
             ))
             .add_systems(
                 Update,
