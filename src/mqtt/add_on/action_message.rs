@@ -77,7 +77,8 @@ where
     T::Status: Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_event::<StatusUpdate<T>>()
+        app.init_resource::<T>()
+            .add_event::<StatusUpdate<T>>()
             .add_systems(Startup, Self::subscribe_request)
             .add_systems(Update, Self::state_update);
 
@@ -89,7 +90,7 @@ where
 
 pub trait State
 where
-    Self: Resource + Sized + Send + Sync + 'static,
+    Self: Resource + Default + Sized + Send + Sync + 'static,
 {
     type Request: Impl<Type = action_type::Request>;
     type Status: Impl<Type = action_type::Status>;

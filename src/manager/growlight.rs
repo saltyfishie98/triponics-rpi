@@ -9,12 +9,7 @@ use crate::{
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.insert_resource(
-            GrowlightManager::new()
-                .map_err(|e| log::error!("\n{}", e.fmt_error()))
-                .unwrap(),
-        )
-        .add_plugins(mqtt::add_on::ActionMessage::<GrowlightManager>::new(
+        app.add_plugins(mqtt::add_on::ActionMessage::<GrowlightManager>::new(
             Some(std::time::Duration::from_secs(1)), //
         ));
     }
@@ -25,7 +20,7 @@ pub struct GrowlightManager {
     gpio: rppal::gpio::OutputPin,
 }
 impl GrowlightManager {
-    fn new() -> Result<Self> {
+    fn init() -> Result<Self> {
         let mut gpio = rppal::gpio::Gpio::new()
             .map_err(|e| {
                 error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
@@ -49,6 +44,13 @@ impl GrowlightManager {
 
         helper::relay::set_state(&mut self.gpio, state);
         Ok(())
+    }
+}
+impl Default for GrowlightManager {
+    fn default() -> Self {
+        Self::init()
+            .map_err(|e| log::error!("\n{}", e.fmt_error()))
+            .unwrap()
     }
 }
 impl mqtt::add_on::action_message::State for GrowlightManager {

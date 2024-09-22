@@ -9,12 +9,7 @@ use crate::{
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.insert_resource(
-            SwitchManager::new()
-                .map_err(|e| log::error!("\n{}", e.fmt_error()))
-                .unwrap(),
-        )
-        .add_plugins(mqtt::add_on::ActionMessage::<SwitchManager>::new(
+        app.add_plugins(mqtt::add_on::ActionMessage::<SwitchManager>::new(
             Some(std::time::Duration::from_secs(1)), //
         ));
     }
@@ -27,7 +22,7 @@ pub struct SwitchManager {
     gpio_switch_3: rppal::gpio::OutputPin,
 }
 impl SwitchManager {
-    pub fn new() -> Result<Self> {
+    pub fn init() -> Result<Self> {
         fn init_gpio(pin: u8) -> Result<rppal::gpio::OutputPin> {
             let mut out = rppal::gpio::Gpio::new()
                 .map_err(|e| {
@@ -74,6 +69,13 @@ impl SwitchManager {
         update(&mut self.gpio_switch_3, request.switch_3, true);
 
         Ok(())
+    }
+}
+impl Default for SwitchManager {
+    fn default() -> Self {
+        Self::init()
+            .map_err(|e| log::error!("\n{}", e.fmt_error()))
+            .unwrap()
     }
 }
 impl mqtt::add_on::action_message::State for SwitchManager {
