@@ -116,7 +116,7 @@ mod action {
         pub switch_2: Option<bool>,
         pub switch_3: Option<bool>,
     }
-    impl mqtt::add_on::action_message::Impl for Update {
+    impl mqtt::add_on::action_message::MessageImpl for Update {
         type Type = mqtt::add_on::action_message::action_type::Request;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
@@ -130,7 +130,7 @@ mod action {
         pub switch_2: bool,
         pub switch_3: bool,
     }
-    impl mqtt::add_on::action_message::Impl for MqttStatus {
+    impl mqtt::add_on::action_message::MessageImpl for MqttStatus {
         type Type = mqtt::add_on::action_message::action_type::Status;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
@@ -140,7 +140,7 @@ mod action {
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct MqttResponse(pub Result<AtomicFixedString, AtomicFixedString>);
-    impl mqtt::add_on::action_message::Impl for MqttResponse {
+    impl mqtt::add_on::action_message::MessageImpl for MqttResponse {
         type Type = mqtt::add_on::action_message::action_type::Response;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;

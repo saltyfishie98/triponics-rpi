@@ -92,9 +92,9 @@ pub trait State
 where
     Self: Resource + Default + Sized + Send + Sync + 'static,
 {
-    type Request: Impl<Type = action_type::Request>;
-    type Status: Impl<Type = action_type::Status>;
-    type Response: Impl<Type = action_type::Response>;
+    type Request: MessageImpl<Type = action_type::Request>;
+    type Status: MessageImpl<Type = action_type::Status>;
+    type Response: MessageImpl<Type = action_type::Response>;
 
     fn get_status(&self) -> Self::Status;
 
@@ -108,9 +108,9 @@ where
     }
 }
 
-pub trait Impl
+pub trait MessageImpl
 where
-    Self: MessageInfo + ActionPrefix,
+    Self: MessageInfo,
 {
     type Type: ActionType; // needed for MqttMessage blanket impl
     const PROJECT: &'static str;
@@ -118,11 +118,11 @@ where
     const DEVICE: &'static str;
     const QOS: Qos;
 }
-impl<T: Impl> MessageInfo for T {
+impl<T: MessageImpl> MessageInfo for T {
     fn topic() -> crate::helper::AtomicFixedString {
         format!(
             "{}/{}/{}/{}",
-            T::Type::prefix::<T>(),
+            T::Type::PREFIX,
             T::PROJECT,
             T::GROUP,
             T::DEVICE
@@ -135,36 +135,23 @@ impl<T: Impl> MessageInfo for T {
     }
 }
 
-pub trait ActionPrefix {
-    const STATUS_PREFIX: &'static str = "data";
-    const REQUEST_PREFIX: &'static str = "request";
-    const RESPONSE_PREFIX: &'static str = "response";
-}
-impl<T: Impl> ActionPrefix for T {}
-
 pub trait ActionType {
-    fn prefix<T: ActionPrefix>() -> &'static str;
+    const PREFIX: &str;
 }
 
 pub mod action_type {
     pub struct Status;
     impl super::ActionType for Status {
-        fn prefix<T: super::ActionPrefix>() -> &'static str {
-            T::STATUS_PREFIX
-        }
+        const PREFIX: &str = "data";
     }
 
     pub struct Request;
     impl super::ActionType for Request {
-        fn prefix<T: super::ActionPrefix>() -> &'static str {
-            T::REQUEST_PREFIX
-        }
+        const PREFIX: &str = "request";
     }
 
     pub struct Response;
     impl super::ActionType for Response {
-        fn prefix<T: super::ActionPrefix>() -> &'static str {
-            T::RESPONSE_PREFIX
-        }
+        const PREFIX: &str = "response";
     }
 }
