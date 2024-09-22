@@ -9,8 +9,11 @@ use crate::{
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_plugins(mqtt::add_on::ActionMessage::<SwitchManager>::new(
-            Some(std::time::Duration::from_secs(1)), //
+        app.add_plugins((
+            mqtt::add_on::action_message::RequestMessage::<SwitchManager>::new(),
+            mqtt::add_on::action_message::StatusMessage::<SwitchManager>::publish_interval(
+                Some(std::time::Duration::from_secs(1)), //
+            ),
         ));
     }
 }
@@ -78,18 +81,9 @@ impl Default for SwitchManager {
             .unwrap()
     }
 }
-impl mqtt::add_on::action_message::State for SwitchManager {
-    type Status = action::MqttStatus;
+impl mqtt::add_on::action_message::RequestHandler for SwitchManager {
     type Request = action::Update;
     type Response = action::MqttResponse;
-
-    fn get_status(&self) -> Self::Status {
-        Self::Status {
-            switch_1: helper::relay::get_state(&self.gpio_switch_1),
-            switch_2: helper::relay::get_state(&self.gpio_switch_2),
-            switch_3: !helper::relay::get_state(&self.gpio_switch_3),
-        }
-    }
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
         Some(action::MqttResponse(
@@ -101,6 +95,17 @@ impl mqtt::add_on::action_message::State for SwitchManager {
                     "unknowned error!".into()
                 }),
         ))
+    }
+}
+impl mqtt::add_on::action_message::PublishStatus for SwitchManager {
+    type Status = action::MqttStatus;
+
+    fn get_status(&self) -> Self::Status {
+        Self::Status {
+            switch_1: helper::relay::get_state(&self.gpio_switch_1),
+            switch_2: helper::relay::get_state(&self.gpio_switch_2),
+            switch_3: !helper::relay::get_state(&self.gpio_switch_3),
+        }
     }
 }
 

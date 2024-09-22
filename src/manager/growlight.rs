@@ -9,8 +9,11 @@ use crate::{
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_plugins(mqtt::add_on::ActionMessage::<GrowlightManager>::new(
-            Some(std::time::Duration::from_secs(1)), //
+        app.add_plugins((
+            mqtt::add_on::action_message::RequestMessage::<GrowlightManager>::new(),
+            mqtt::add_on::action_message::StatusMessage::<GrowlightManager>::publish_interval(
+                Some(std::time::Duration::from_secs(1)),
+            ),
         ));
     }
 }
@@ -53,16 +56,9 @@ impl Default for GrowlightManager {
             .unwrap()
     }
 }
-impl mqtt::add_on::action_message::State for GrowlightManager {
+impl mqtt::add_on::action_message::RequestHandler for GrowlightManager {
     type Request = action::Update;
-    type Status = action::MqttStatus;
     type Response = action::MqttResponse;
-
-    fn get_status(&self) -> Self::Status {
-        Self::Status {
-            state: helper::relay::get_state(&self.gpio),
-        }
-    }
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
         Some(action::MqttResponse(
@@ -74,6 +70,15 @@ impl mqtt::add_on::action_message::State for GrowlightManager {
                     "unknowned error!".into()
                 }),
         ))
+    }
+}
+impl mqtt::add_on::action_message::PublishStatus for GrowlightManager {
+    type Status = action::MqttStatus;
+
+    fn get_status(&self) -> Self::Status {
+        Self::Status {
+            state: helper::relay::get_state(&self.gpio),
+        }
     }
 }
 
