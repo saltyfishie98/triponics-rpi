@@ -1,29 +1,22 @@
 pub mod add_on;
-pub mod component;
 pub mod event;
 
 mod options;
 pub use options::*;
 
 mod wrapper;
-use serde::de::DeserializeOwned;
 pub use wrapper::*;
 
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::time::Duration;
 
 use bevy_app::{Plugin, Update};
 use bevy_ecs::{
-    component::Component,
     entity::Entity,
     event::{EventReader, EventWriter},
     prelude::on_event,
     query::With,
     schedule::IntoSystemConfigs,
-    system::{Commands, Local, Query, Res, ResMut, Resource},
+    system::{Commands, Local, Query, Res, ResMut},
     world::World,
 };
 use bevy_internal::time::{Time, Timer};
@@ -31,55 +24,10 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::helper::{AsyncEventExt, AtomicFixedBytes, AtomicFixedString};
-#[allow(unused_imports)]
-use tracing as log;
-
-pub trait MqttMessage
-where
-    Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
-{
-    fn topic() -> AtomicFixedString;
-    fn qos() -> Qos;
-
-    fn to_payload(&self) -> AtomicFixedBytes {
-        let mut out = Vec::new();
-        serde_json::to_writer(&mut out, self).unwrap();
-        out.into()
-    }
-
-    fn into_message(self) -> component::PublishMsg {
-        component::PublishMsg {
-            topic: Self::topic(),
-            payload: self.to_payload(),
-            qos: Self::qos(),
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct SubscriptionsBuilder {
-    subs: Vec<(AtomicFixedString, Qos)>,
-}
-impl SubscriptionsBuilder {
-    pub fn with_msg<T: MqttMessage>(mut self) -> Self {
-        self.subs.push((T::topic(), T::qos()));
-        self
-    }
-
-    pub fn finalize(self) -> Subscriptions {
-        Subscriptions(self.subs.into())
-    }
-}
-
-#[derive(Component, Debug, Clone)]
-pub struct Subscriptions(Arc<[(AtomicFixedString, Qos)]>);
-impl Subscriptions {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> SubscriptionsBuilder {
-        Default::default()
-    }
-}
+use crate::{
+    helper::{AsyncEventExt, AtomicFixedString},
+    log,
+};
 
 pub struct MqttPlugin {
     pub client_create_options: ClientCreateOptions,
@@ -97,9 +45,9 @@ impl Plugin for MqttPlugin {
 
         app.insert_resource(client_create_options.clone())
             .insert_resource(client_connect_options.clone())
-            .insert_resource(MqttSubscriptions(Vec::new()))
-            .insert_resource(MqttIncommingMsgTx(mqtt_incoming_msg_queue))
-            .insert_resource(MqttCacheManager::new(
+            .insert_resource(local::MqttSubscriptions(Vec::new()))
+            .insert_resource(local::MqttIncommingMsgTx(mqtt_incoming_msg_queue))
+            .insert_resource(local::MqttCacheManager::new(
                 client_create_options.client_id.clone(),
                 client_create_options.cache_dir_path.as_ref().unwrap(),
             ))
@@ -128,7 +76,7 @@ impl MqttPlugin {
         mut ev: EventReader<event::RestartClient>,
         mut restart_timer: Local<Option<Timer>>,
         time: Res<Time>,
-        client: Option<Res<MqttClient>>,
+        client: Option<Res<local::MqttClient>>,
         create_opts: Res<ClientCreateOptions>,
     ) {
         async fn mqtt_recv_task(
@@ -221,9 +169,9 @@ impl MqttPlugin {
         }
 
         cmd.add(|world: &mut World| {
-            if let Some(old_client) = world.remove_resource::<MqttClient>() {
+            if let Some(old_client) = world.remove_resource::<local::MqttClient>() {
                 log::debug!("removed old client");
-                let MqttClient {
+                let local::MqttClient {
                     inner_client,
                     recv_task,
                     ping_task,
@@ -239,7 +187,7 @@ impl MqttPlugin {
                 .unwrap()
                 .clone();
 
-            match world.get_resource::<RestartTaskHandle>() {
+            match world.get_resource::<local::RestartTaskHandle>() {
                 None => {
                     if let Some(timer) = timer {
                         if !timer.just_finished() {
@@ -247,15 +195,15 @@ impl MqttPlugin {
                         }
                     }
 
-                    let (tx, rx) = crossbeam_channel::bounded::<NewMqttClient>(1);
-                    world.insert_resource(NewMqttClientRecv(rx));
+                    let (tx, rx) = crossbeam_channel::bounded::<local::NewMqttClient>(1);
+                    world.insert_resource(local::NewMqttClientRecv(rx));
 
                     let handle = {
                         let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
                         let create_opts =
                             world.get_resource::<ClientCreateOptions>().unwrap().clone();
-                        let MqttSubscriptions(subscriptions) =
-                            world.get_resource::<MqttSubscriptions>().unwrap();
+                        let local::MqttSubscriptions(subscriptions) =
+                            world.get_resource::<local::MqttSubscriptions>().unwrap();
 
                         let paho_create_opts = paho_mqtt::CreateOptions::from(&create_opts);
                         let paho_conn_opts = paho_mqtt::ConnectOptions::from(&connect_opts);
@@ -272,7 +220,7 @@ impl MqttPlugin {
 
                         rt.spawn_background_task(move |_| async move {
                             log::debug!("mqtt client restart triggered, reason: {reason}");
-                            tx.send(NewMqttClient(
+                            tx.send(local::NewMqttClient(
                                 make_client(
                                     paho_create_opts,
                                     paho_conn_opts,
@@ -289,10 +237,11 @@ impl MqttPlugin {
                         })
                     };
 
-                    world.insert_resource(RestartTaskHandle(handle));
+                    world.insert_resource(local::RestartTaskHandle(handle));
                 }
                 Some(_) => {
-                    let NewMqttClientRecv(rx) = world.get_resource::<NewMqttClientRecv>().unwrap();
+                    let local::NewMqttClientRecv(rx) =
+                        world.get_resource::<local::NewMqttClientRecv>().unwrap();
 
                     match rx.try_recv() {
                         Err(crossbeam_channel::TryRecvError::Empty) => {
@@ -302,10 +251,12 @@ impl MqttPlugin {
                         Err(crossbeam_channel::TryRecvError::Disconnected) => {
                             log::error!("can't received new mqtt client");
                         }
-                        Ok(NewMqttClient(Ok((client, stream)))) => {
+                        Ok(local::NewMqttClient(Ok((client, stream)))) => {
                             let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
-                            let MqttIncommingMsgTx(tx) =
-                                world.get_resource::<MqttIncommingMsgTx>().unwrap().clone();
+                            let local::MqttIncommingMsgTx(tx) = world
+                                .get_resource::<local::MqttIncommingMsgTx>()
+                                .unwrap()
+                                .clone();
 
                             let recv_task = rt.spawn_background_task(|_| async move {
                                 mqtt_recv_task(tx, stream).await;
@@ -321,20 +272,20 @@ impl MqttPlugin {
                             };
 
                             log::info!("mqtt client restarted");
-                            world.insert_resource(MqttClient {
+                            world.insert_resource(local::MqttClient {
                                 inner_client: client,
                                 recv_task,
                                 ping_task,
                             })
                         }
-                        Ok(NewMqttClient(Err(e))) => {
+                        Ok(local::NewMqttClient(Err(e))) => {
                             log::warn!("failed to restart mqtt client, reason: {e}");
                             world.send_event(event::RestartClient("failed to connect"));
                         }
                     }
 
-                    if let Some(RestartTaskHandle(handle)) =
-                        world.remove_resource::<RestartTaskHandle>()
+                    if let Some(local::RestartTaskHandle(handle)) =
+                        world.remove_resource::<local::RestartTaskHandle>()
                     {
                         handle.abort();
                     }
@@ -347,8 +298,8 @@ impl MqttPlugin {
         mut cmd: Commands,
         mut restarter: EventWriter<event::RestartClient>,
         rt: Res<TokioTasksRuntime>,
-        cache: Res<MqttCacheManager>,
-        client: Option<ResMut<MqttClient>>,
+        cache: Res<local::MqttCacheManager>,
+        client: Option<ResMut<local::MqttClient>>,
     ) {
         if client.is_none() {
             log::trace!("publish cache -> blocked by unavailable mqtt client");
@@ -368,7 +319,7 @@ impl MqttPlugin {
 
         let res = rt
             .runtime()
-            .block_on(async { MqttCacheManager::read(conn, 10).await });
+            .block_on(async { local::MqttCacheManager::read(conn, 10).await });
 
         match res {
             Ok(msg_vec) => msg_vec.into_iter().for_each(|msg| {
@@ -380,16 +331,16 @@ impl MqttPlugin {
 
     fn publish_message(
         mut cmd: Commands,
-        mut query: Query<&mut component::PublishMsg>,
+        mut query: Query<&mut message::Message>,
         rt: Res<TokioTasksRuntime>,
-        client: Option<Res<MqttClient>>,
-        cache_manager: Res<MqttCacheManager>,
-        entt: Query<Entity, With<component::PublishMsg>>,
+        client: Option<Res<local::MqttClient>>,
+        cache_manager: Res<local::MqttCacheManager>,
+        entt: Query<Entity, With<message::Message>>,
     ) {
         fn process_msg(
             (rt, msg, maybe_client, cache): (
                 &Res<TokioTasksRuntime>,
-                component::PublishMsg,
+                message::Message,
                 Option<paho_mqtt::AsyncClient>,
                 &'static Mutex<rusqlite::Connection>,
             ),
@@ -403,11 +354,11 @@ impl MqttPlugin {
                         }
                         Err(e) => {
                             log::warn!("failed to publish message, reason {e}");
-                            MqttCacheManager::add(cache, &msg).await.unwrap();
+                            local::MqttCacheManager::add(cache, &msg).await.unwrap();
                         }
                     },
                     None => {
-                        MqttCacheManager::add(cache, &msg).await.unwrap();
+                        local::MqttCacheManager::add(cache, &msg).await.unwrap();
                     }
                 }
             });
@@ -442,14 +393,14 @@ impl MqttPlugin {
         }
 
         entt.iter().for_each(|entt| {
-            cmd.entity(entt).remove::<component::PublishMsg>();
+            cmd.entity(entt).remove::<message::Message>();
         });
     }
 
     fn update_subscriptions(
         mut cmd: Commands,
-        entt: Query<Entity, With<Subscriptions>>,
-        client: Option<Res<MqttClient>>,
+        entt: Query<Entity, With<message::Subscriptions>>,
+        client: Option<Res<local::MqttClient>>,
     ) {
         if client.is_none() {
             return;
@@ -457,9 +408,9 @@ impl MqttPlugin {
 
         entt.iter().for_each(|entt| {
             cmd.add(move |world: &mut World| {
-                if let Some(new_sub) = world.entity_mut(entt).take::<Subscriptions>() {
-                    if let Some(client) = world.get_resource::<MqttClient>() {
-                        let Subscriptions(subs) = new_sub;
+                if let Some(new_sub) = world.entity_mut(entt).take::<message::Subscriptions>() {
+                    if let Some(client) = world.get_resource::<local::MqttClient>() {
+                        let message::Subscriptions(subs) = new_sub;
                         if !subs.is_empty() {
                             let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
 
@@ -477,7 +428,7 @@ impl MqttPlugin {
                                     ctx.run_on_main_thread(move |ctx| {
                                         let mut subs = ctx
                                             .world
-                                            .get_resource_mut::<MqttSubscriptions>()
+                                            .get_resource_mut::<local::MqttSubscriptions>()
                                             .unwrap();
                                         subs.0.extend_from_slice(&new_sub);
                                         log::info!("subscribed to topics {topics:?}");
@@ -493,97 +444,196 @@ impl MqttPlugin {
     }
 }
 
-#[derive(Debug, Resource)]
-struct MqttCacheManager {
-    connection: &'static Mutex<rusqlite::Connection>,
-}
-impl MqttCacheManager {
-    fn new(client_id: AtomicFixedString, path: &Path) -> Self {
-        let mut path = PathBuf::from(path);
-        path.push(format!("{}.db3", client_id.as_ref()));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+pub mod message {
+    use std::sync::Arc;
 
-        let conn = rusqlite::Connection::open(path).unwrap();
-        conn.execute(include_str!("../sql/create_table.sql"), ())
-            .unwrap();
+    use bevy_ecs::component::Component;
+    use serde::de::DeserializeOwned;
 
-        static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
-        let connection = DB_CONNECTION.get_or_init(|| Mutex::new(conn));
+    use super::Qos;
+    use crate::helper::{AtomicFixedBytes, AtomicFixedString};
 
-        Self { connection }
-    }
+    pub trait MessageInfo
+    where
+        Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
+    {
+        fn topic() -> AtomicFixedString;
+        fn qos() -> Qos;
 
-    async fn add(
-        conn: &'static Mutex<rusqlite::Connection>,
-        msg: &component::PublishMsg,
-    ) -> anyhow::Result<()> {
-        let conn = conn.lock().await;
-
-        let msg_1 = msg.clone();
-        let out = Ok(conn
-            .execute(
-                include_str!("../sql/add_data.sql"),
-                (
-                    time::OffsetDateTime::now_utc().unix_timestamp(),
-                    postcard::to_allocvec(msg)?,
-                ),
-            )
-            .map(|_| ())?);
-
-        log::debug!("cached -> {msg_1:?}");
-        out
-    }
-
-    async fn read(
-        conn: &'static Mutex<rusqlite::Connection>,
-        count: u32,
-    ) -> anyhow::Result<Vec<component::PublishMsg>> {
-        let conn = conn.lock().await;
-
-        let mut stmt = conn.prepare(include_str!("../sql/read_data.sql"))?;
-        let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
-
-        let out = rows
-            .map(|data| {
-                Ok::<_, anyhow::Error>(postcard::from_bytes::<component::PublishMsg>(&data?)?)
-            })
-            .collect::<Result<Vec<_>, _>>();
-
-        if let Err(e) = conn.execute(include_str!("../sql/delete_data.sql"), [count]) {
-            log::warn!("failed to delete cached data, reason {e}");
+        fn to_payload(&self) -> AtomicFixedBytes {
+            let mut out = Vec::new();
+            serde_json::to_writer(&mut out, self).unwrap();
+            out.into()
         }
 
-        out
+        fn make(self) -> Message {
+            Message {
+                topic: Self::topic(),
+                payload: self.to_payload(),
+                qos: Self::qos(),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    pub struct SubscriptionsBuilder {
+        subs: Vec<(AtomicFixedString, Qos)>,
+    }
+    impl SubscriptionsBuilder {
+        pub fn with_msg<T: MessageInfo>(mut self) -> Self {
+            self.subs.push((T::topic(), T::qos()));
+            self
+        }
+
+        pub fn finalize(self) -> Subscriptions {
+            Subscriptions(self.subs.into())
+        }
+    }
+
+    #[derive(Component, Debug, Clone)]
+    pub struct Subscriptions(pub(super) Arc<[(AtomicFixedString, Qos)]>);
+    impl Subscriptions {
+        #[allow(clippy::new_ret_no_self)]
+        pub fn new() -> SubscriptionsBuilder {
+            Default::default()
+        }
+    }
+
+    #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
+    pub struct Message {
+        pub(super) topic: AtomicFixedString,
+        pub(super) payload: AtomicFixedBytes,
+        pub(super) qos: Qos,
+    }
+    impl std::fmt::Debug for Message {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("PublishMsg")
+                .field("topic", &self.topic)
+                .field(
+                    "payload",
+                    &String::from_utf8(self.payload.as_ref().to_vec())
+                        .unwrap_or("INVALID UTF-8".into()),
+                )
+                .field("qos", &self.qos)
+                .finish()
+        }
+    }
+    impl From<Message> for paho_mqtt::Message {
+        fn from(value: Message) -> Self {
+            let Message {
+                topic,
+                payload,
+                qos,
+            } = value;
+            Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
+        }
     }
 }
 
-#[derive(Resource)]
-struct MqttClient {
-    inner_client: paho_mqtt::AsyncClient,
-    recv_task: tokio::task::JoinHandle<()>,
-    ping_task: tokio::task::JoinHandle<()>,
+mod local {
+    use std::{
+        path::{Path, PathBuf},
+        sync::OnceLock,
+    };
+
+    use bevy_ecs::system::Resource;
+    use tokio::sync::Mutex;
+
+    use super::{event, log, message, Qos};
+    use crate::helper::AtomicFixedString;
+
+    #[derive(Debug, Resource)]
+    pub struct MqttCacheManager {
+        pub connection: &'static Mutex<rusqlite::Connection>,
+    }
+    impl MqttCacheManager {
+        pub fn new(client_id: AtomicFixedString, path: &Path) -> Self {
+            let mut path = PathBuf::from(path);
+            path.push(format!("{}.db3", client_id.as_ref()));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+            let conn = rusqlite::Connection::open(path).unwrap();
+            conn.execute(include_str!("../sql/create_table.sql"), ())
+                .unwrap();
+
+            static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
+            let connection = DB_CONNECTION.get_or_init(|| Mutex::new(conn));
+
+            Self { connection }
+        }
+
+        pub async fn add(
+            conn: &'static Mutex<rusqlite::Connection>,
+            msg: &message::Message,
+        ) -> anyhow::Result<()> {
+            let conn = conn.lock().await;
+
+            let msg_1 = msg.clone();
+            let out = Ok(conn
+                .execute(
+                    include_str!("../sql/add_data.sql"),
+                    (
+                        time::OffsetDateTime::now_utc().unix_timestamp(),
+                        postcard::to_allocvec(msg)?,
+                    ),
+                )
+                .map(|_| ())?);
+
+            log::debug!("cached -> {msg_1:?}");
+            out
+        }
+
+        pub async fn read(
+            conn: &'static Mutex<rusqlite::Connection>,
+            count: u32,
+        ) -> anyhow::Result<Vec<message::Message>> {
+            let conn = conn.lock().await;
+
+            let mut stmt = conn.prepare(include_str!("../sql/read_data.sql"))?;
+            let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
+
+            let out = rows
+                .map(|data| {
+                    Ok::<_, anyhow::Error>(postcard::from_bytes::<message::Message>(&data?)?)
+                })
+                .collect::<Result<Vec<_>, _>>();
+
+            if let Err(e) = conn.execute(include_str!("../sql/delete_data.sql"), [count]) {
+                log::warn!("failed to delete cached data, reason {e}");
+            }
+
+            out
+        }
+    }
+
+    #[derive(Resource)]
+    pub struct MqttClient {
+        pub inner_client: paho_mqtt::AsyncClient,
+        pub recv_task: tokio::task::JoinHandle<()>,
+        pub ping_task: tokio::task::JoinHandle<()>,
+    }
+
+    #[derive(Debug, Resource, Clone)]
+    pub struct MqttIncommingMsgTx(pub std::sync::mpsc::Sender<event::IncomingMessage>);
+
+    #[allow(unused)]
+    #[derive(Debug, Resource)]
+    pub struct MqttSubscriptions(pub Vec<(AtomicFixedString, Qos)>);
+
+    #[derive(Debug, Resource)]
+    pub struct RestartTaskHandle(pub tokio::task::JoinHandle<()>);
+
+    #[derive(Resource)]
+    pub struct NewMqttClient(
+        pub  Result<
+            (
+                paho_mqtt::AsyncClient,
+                paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
+            ),
+            paho_mqtt::Error,
+        >,
+    );
+
+    #[derive(Debug, Resource)]
+    pub struct NewMqttClientRecv(pub crossbeam_channel::Receiver<NewMqttClient>);
 }
-
-#[derive(Debug, Resource, Clone)]
-struct MqttIncommingMsgTx(std::sync::mpsc::Sender<event::IncomingMessage>);
-
-#[allow(unused)]
-#[derive(Debug, Resource)]
-struct MqttSubscriptions(Vec<(AtomicFixedString, Qos)>);
-
-#[derive(Debug, Resource)]
-struct RestartTaskHandle(tokio::task::JoinHandle<()>);
-
-#[derive(Resource)]
-struct NewMqttClient(
-    Result<
-        (
-            paho_mqtt::AsyncClient,
-            paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
-        ),
-        paho_mqtt::Error,
-    >,
-);
-
-#[derive(Debug, Resource)]
-struct NewMqttClientRecv(crossbeam_channel::Receiver<NewMqttClient>);

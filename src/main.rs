@@ -76,7 +76,7 @@ struct Counter {
     data: u32,
     datetime: String,
 }
-impl mqtt::MqttMessage for Counter {
+impl mqtt::message::MessageInfo for Counter {
     fn topic() -> helper::AtomicFixedString {
         "test".into()
     }
@@ -89,9 +89,13 @@ impl Counter {
     fn subscribe(mut cmd: Commands) {
         cmd.insert_resource(Counter {
             data: 0,
-            datetime: m_::local_time_now_str(),
+            datetime: local::local_time_now_str(),
         });
-        cmd.spawn(mqtt::Subscriptions::new().with_msg::<Counter>().finalize());
+        cmd.spawn(
+            mqtt::message::Subscriptions::new()
+                .with_msg::<Counter>()
+                .finalize(),
+        );
     }
 
     fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessage>) {
@@ -103,7 +107,7 @@ impl Counter {
     }
 }
 
-mod m_ {
+mod local {
     use super::*;
 
     pub fn local_time_now_str() -> String {

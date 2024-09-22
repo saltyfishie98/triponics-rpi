@@ -8,8 +8,11 @@ use bevy_ecs::{
 };
 use bevy_internal::time::common_conditions::on_timer;
 
-use super::super::{component, MqttMessage, Qos};
-use crate::mqtt;
+use super::super::Qos;
+use crate::mqtt::{
+    self,
+    message::{self, MessageInfo},
+};
 
 #[allow(unused_imports)]
 use crate::log;
@@ -38,7 +41,7 @@ where
 
     fn subscribe_request(mut cmd: Commands) {
         cmd.spawn(
-            mqtt::Subscriptions::new()
+            mqtt::message::Subscriptions::new()
                 .with_msg::<T::Request>()
                 .finalize(),
         );
@@ -52,7 +55,7 @@ where
         while let Some(incoming_msg) = ev_reader.read().next() {
             if let Some(request) = incoming_msg.get::<T::Request>() {
                 if let Some(res) = T::update_state(request, &mut state) {
-                    cmd.spawn(res.into_message());
+                    cmd.spawn(res.make());
                 }
             }
         }
@@ -60,7 +63,7 @@ where
 
     fn publish_status(mut cmd: Commands, maybe_state: Option<Res<T>>) {
         if let Some(state) = maybe_state {
-            cmd.spawn(component::PublishMsg {
+            cmd.spawn(message::Message {
                 topic: T::Status::topic(),
                 payload: state.get_status().to_payload(),
                 qos: T::Status::qos(),
@@ -106,7 +109,7 @@ where
 
 pub trait Impl
 where
-    Self: MqttMessage + ActionPrefix,
+    Self: MessageInfo + ActionPrefix,
 {
     type Type: ActionType; // needed for MqttMessage blanket impl
     const PROJECT: &'static str;
@@ -114,7 +117,7 @@ where
     const DEVICE: &'static str;
     const QOS: Qos;
 }
-impl<T: Impl> MqttMessage for T {
+impl<T: Impl> MessageInfo for T {
     fn topic() -> crate::helper::AtomicFixedString {
         format!(
             "{}/{}/{}/{}",
