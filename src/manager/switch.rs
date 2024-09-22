@@ -109,7 +109,7 @@ impl mqtt::add_on::action_message::PublishStatus for SwitchManager {
     }
 }
 
-mod action {
+pub mod action {
     use crate::{constants, helper::AtomicFixedString, mqtt};
 
     const GROUP: &str = "switch";
