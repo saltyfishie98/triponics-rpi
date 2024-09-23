@@ -10,7 +10,7 @@ use crate::{
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_plugins((
+        app.init_resource::<GrowlightManager>().add_plugins((
             mqtt::add_on::action_message::RequestMessage::<GrowlightManager>::new(),
             mqtt::add_on::action_message::StatusMessage::<GrowlightManager>::publish_condition(
                 on_timer(std::time::Duration::from_secs(1)),

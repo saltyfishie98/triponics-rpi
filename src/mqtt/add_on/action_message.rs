@@ -62,7 +62,7 @@ pub mod action_type {
 
 pub trait PublishStatus
 where
-    Self: Resource + Default + Sized + Send + Sync + 'static,
+    Self: Resource + Sized + Send + Sync + 'static,
 {
     type Status: MessageImpl<Type = action_type::Status>;
     fn get_status(&self) -> Self::Status;
@@ -70,7 +70,7 @@ where
 
 pub trait RequestHandler
 where
-    Self: Resource + Default + Sized + Send + Sync + 'static,
+    Self: Resource + Sized + Send + Sync + 'static,
 {
     type Request: MessageImpl<Type = action_type::Request>;
     type Response: MessageImpl<Type = action_type::Response>;
@@ -126,8 +126,7 @@ where
     fn build(&self, app: &mut bevy_app::App) {
         let system = self.system_configs.write().unwrap().take().unwrap();
 
-        app.init_resource::<T>()
-            .add_event::<local::StatusUpdate<T>>()
+        app.add_event::<local::StatusUpdate<T>>()
             .add_systems(Update, system);
     }
 }
@@ -158,12 +157,14 @@ where
     fn state_update(
         mut cmd: Commands,
         mut ev_reader: EventReader<mqtt::event::IncomingMessage>,
-        mut state: ResMut<T>,
+        mut maybe_state: Option<ResMut<T>>,
     ) {
         while let Some(incoming_msg) = ev_reader.read().next() {
             if let Some(request) = incoming_msg.get::<T::Request>() {
-                if let Some(res) = T::update_state(request, &mut state) {
-                    cmd.spawn(res.make());
+                if let Some(ref mut state) = maybe_state {
+                    if let Some(res) = T::update_state(request, state) {
+                        cmd.spawn(res.make());
+                    }
                 }
             }
         }
@@ -174,8 +175,7 @@ where
     T: RequestHandler,
 {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<T>()
-            .add_systems(Startup, Self::subscribe_request)
+        app.add_systems(Startup, Self::subscribe_request)
             .add_systems(Update, Self::state_update);
     }
 }
