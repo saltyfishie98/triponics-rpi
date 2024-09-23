@@ -17,7 +17,7 @@ use time::macros::offset;
 use tracing as log;
 
 fn main() -> anyhow::Result<()> {
-    helper::init_logging();
+    helper::init_logging(false);
 
     let config = config::AppConfig::load();
     log::debug!("config:\n{config:#?}");
@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
         .add_systems(Update, (local::Counter::log_msg,))
         .run();
 
-    log::info!("bye!");
+    log::info!("bye!\n");
 
     Ok(())
 }

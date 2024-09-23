@@ -1,27 +1,104 @@
-pub fn init_logging() {
-    use tracing_subscriber::{layer::SubscriberExt, Layer};
+// This introduces event channels, on one side of which is mpsc::Sender<T>, and on another
+// side is bevy's EventReader<T>, and it automatically bridges between the two.
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 
-    let subscriber = tracing_subscriber::Registry::default()
-        .with(tracing_subscriber::EnvFilter::try_from_env("LOGGING").unwrap_or_default());
+use bevy_app::{App, PreUpdate};
+use bevy_ecs::event::EventWriter;
+use bevy_ecs::system::Resource;
+use bevy_ecs::{event::Event, system::Res};
+use bevy_internal::prelude::{Deref, DerefMut};
+use serde::Deserialize;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-    let fmt = {
-        let time_offset = time::UtcOffset::current_local_offset()
-            .unwrap_or(time::UtcOffset::from_hms(8, 0, 0).unwrap());
+pub fn init_logging(to_stdout: bool) {
+    // use tracing_subscriber::{layer::SubscriberExt, Layer};
 
-        tracing_subscriber::fmt::Layer::default()
-            .with_target(false)
+    // let subscriber = tracing_subscriber::Registry::default()
+    //     .with(tracing_subscriber::EnvFilter::try_from_env("LOGGING").unwrap_or_default());
+
+    // let fmt = {
+    //     let time_offset = time::UtcOffset::current_local_offset()
+    //         .unwrap_or(time::UtcOffset::from_hms(8, 0, 0).unwrap());
+
+    //     tracing_subscriber::fmt::Layer::default()
+    //         .with_target(false)
+    //         .with_file(true)
+    //         .with_line_number(true)
+    //         .with_timer(tracing_subscriber::fmt::time::OffsetTime::new(
+    //             time_offset,
+    //             time::macros::format_description!(
+    //                 "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
+    //             ),
+    //         ))
+    //         .with_filter(tracing_subscriber::filter::LevelFilter::TRACE)
+    // };
+
+    // tracing::subscriber::set_global_default(subscriber.with(fmt)).unwrap();
+
+    let offset = time::UtcOffset::current_local_offset().expect("should get local offset!");
+
+    let mut data_path = crate::data_directory().to_path_buf();
+    data_path.push("app.log");
+
+    let expected = "Failed to set subscriber";
+    let subscriber = Registry::default().with(
+        #[cfg(debug_assertions)]
+        {
+            EnvFilter::try_from_env("LOGGING").unwrap_or(EnvFilter::new("info"))
+        },
+        #[cfg(not(debug_assertions))]
+        {
+            EnvFilter::try_from_env("LOGGING").unwrap_or(EnvFilter::new("info"))
+        },
+    );
+
+    #[cfg(debug_assertions)]
+    {
+        let _ = to_stdout;
+        let layer = fmt::Layer::default()
+            .with_thread_ids(true)
             .with_file(true)
+            .with_target(false)
             .with_line_number(true)
-            .with_timer(tracing_subscriber::fmt::time::OffsetTime::new(
-                time_offset,
+            .with_timer(fmt::time::OffsetTime::new(
+                offset,
                 time::macros::format_description!(
                     "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
                 ),
-            ))
-            .with_filter(tracing_subscriber::filter::LevelFilter::TRACE)
-    };
+            ));
 
-    tracing::subscriber::set_global_default(subscriber.with(fmt)).unwrap();
+        tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let layer = fmt::Layer::default()
+            .with_file(true)
+            .with_target(false)
+            .with_line_number(true)
+            .with_timer(fmt::time::OffsetTime::new(
+                offset,
+                time::macros::format_description!(
+                    "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
+                ),
+            ));
+
+        if !to_stdout {
+            let file = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(data_path)
+                .unwrap();
+
+            let layer = layer.with_writer(file).with_ansi(false);
+
+            tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
+        } else {
+            tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
+        }
+    }
 }
 
 fn deserialize_arc_str<'de, D>(deserializer: D) -> Result<Arc<str>, D::Error>
@@ -114,18 +191,6 @@ impl std::fmt::Display for AtomicFixedString {
         write!(f, "{}", self.0)
     }
 }
-
-// This introduces event channels, on one side of which is mpsc::Sender<T>, and on another
-// side is bevy's EventReader<T>, and it automatically bridges between the two.
-use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
-
-use bevy_app::{App, PreUpdate};
-use bevy_ecs::event::EventWriter;
-use bevy_ecs::system::Resource;
-use bevy_ecs::{event::Event, system::Res};
-use bevy_internal::prelude::{Deref, DerefMut};
-use serde::Deserialize;
 
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);
