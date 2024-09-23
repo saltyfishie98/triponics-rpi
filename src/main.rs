@@ -13,11 +13,22 @@ use bevy_ecs::{
 };
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
+use clap::Parser;
 use time::macros::offset;
 use tracing as log;
 
+#[derive(clap::Parser)]
+#[command(version, about, long_about = None)]
+pub struct Args {
+    /// log to stdout
+    #[arg(long)]
+    pub stdout: bool,
+}
+
 fn main() -> anyhow::Result<()> {
-    helper::init_logging(false);
+    let args = Args::parse();
+
+    helper::init_logging(args.stdout);
 
     let config = config::AppConfig::load();
     log::debug!("config:\n{config:#?}");
