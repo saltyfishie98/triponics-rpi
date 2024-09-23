@@ -1,6 +1,6 @@
 use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
-use bevy_internal::time::common_conditions::on_timer;
+use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use super::switch;
 use crate::{
@@ -38,7 +38,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            spray_duration: std::time::Duration::from_secs(4),
+            spray_duration: std::time::Duration::from_secs(3),
             spray_interval: std::time::Duration::from_secs(5 * 60),
         }
     }
@@ -56,12 +56,14 @@ impl AeroponicSprayManager {
     }
 
     fn update_switch(mut switch_manager: ResMut<switch::SwitchManager>, this: Res<Self>) {
-        if let Err(e) = switch_manager.update_state(switch::action::Update {
-            switch_1: None,
-            switch_2: Some(this.state),
-            switch_3: None,
-        }) {
-            log::warn!("\n{}", e.fmt_error())
+        if this.is_changed() {
+            if let Err(e) = switch_manager.update_state(switch::action::Update {
+                switch_1: None,
+                switch_2: Some(this.state),
+                switch_3: None,
+            }) {
+                log::warn!("\n{}", e.fmt_error())
+            }
         }
     }
 
