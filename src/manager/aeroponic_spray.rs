@@ -17,8 +17,11 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<AeroponicSprayManager>()
             .insert_resource(self.config.clone())
-            .add_plugins(StatusMessage::<AeroponicSprayManager>::publish_condition(
-                on_timer(std::time::Duration::from_secs(1)),
+            .add_plugins((
+                StatusMessage::<AeroponicSprayManager>::publish_condition(on_timer(
+                    std::time::Duration::from_secs(1),
+                )),
+                state_file::StateFile::<AeroponicSprayManager>::new(),
             ))
             .add_systems(
                 Update,
@@ -46,19 +49,19 @@ impl Default for Config {
 
 #[derive(Debug, Resource, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AeroponicSprayManager {
-    state: bool,
+    sprayer_state: bool,
     next_spray_time: time::OffsetDateTime,
 }
 impl AeroponicSprayManager {
     pub fn set_state(&mut self, new_state: bool) {
-        self.state = new_state;
+        self.sprayer_state = new_state;
     }
 
     fn update_switch(mut switch_manager: ResMut<switch::SwitchManager>, this: Res<Self>) {
         if this.is_changed() {
             if let Err(e) = switch_manager.update_state(switch::action::Update {
                 switch_1: None,
-                switch_2: Some(this.state),
+                switch_2: Some(this.sprayer_state),
                 switch_3: None,
             }) {
                 log::warn!("\n{}", e.fmt_error())
@@ -91,7 +94,7 @@ impl AeroponicSprayManager {
 impl Default for AeroponicSprayManager {
     fn default() -> Self {
         Self {
-            state: Default::default(),
+            sprayer_state: Default::default(),
             next_spray_time: time::OffsetDateTime::now_utc(),
         }
     }
@@ -106,14 +109,16 @@ impl state_file::SaveState for AeroponicSprayManager {
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
-        self.clone()
+        let mut state = self.clone();
+        state.sprayer_state = false;
+        state
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {
     type Status = action::Status;
 
     fn get_status(&self) -> Self::Status {
-        let next_spray_time = if !self.state {
+        let next_spray_time = if !self.sprayer_state {
             self.next_spray_time
                 .to_offset(*timezone_offset())
                 .to_string()
@@ -123,7 +128,7 @@ impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {
         };
 
         Self::Status {
-            sprayer_state: self.state,
+            sprayer_state: self.sprayer_state,
             next_spray_time,
         }
     }

@@ -61,6 +61,7 @@ where
         };
 
         if let Ok(state) = serde_json::from_slice(&state) {
+            world.remove_resource::<T>();
             world.insert_resource(T::build(state))
         };
     }

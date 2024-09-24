@@ -1,5 +1,4 @@
-use bevy_app::Startup;
-use bevy_ecs::system::{Commands, Res, Resource};
+use bevy_ecs::system::Resource;
 use bevy_internal::time::common_conditions::on_timer;
 
 use crate::{
@@ -14,14 +13,13 @@ use super::state_file;
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_plugins((
+        app.init_resource::<GrowlightManager>().add_plugins((
             state_file::StateFile::<GrowlightManager>::new(),
             mqtt::add_on::action_message::RequestMessage::<GrowlightManager>::new(),
             mqtt::add_on::action_message::StatusMessage::<GrowlightManager>::publish_condition(
                 on_timer(std::time::Duration::from_secs(1)),
             ),
-        ))
-        .add_systems(Startup, GrowlightManager::setup);
+        ));
     }
 }
 
@@ -54,12 +52,6 @@ impl GrowlightManager {
 
         helper::relay::set_state(&mut self.gpio, state);
         Ok(())
-    }
-
-    pub fn setup(mut cmd: Commands, maybe_this: Option<Res<Self>>) {
-        if maybe_this.is_none() {
-            cmd.init_resource::<Self>();
-        }
     }
 }
 impl Default for GrowlightManager {
