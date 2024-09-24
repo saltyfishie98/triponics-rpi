@@ -2,12 +2,14 @@ use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
-use super::{state_file, switch};
+use super::switch;
 use crate::{
     helper::ErrorLogFormat,
     log,
-    mqtt::{self, add_on::action_message::StatusMessage},
-    timezone_offset,
+    plugins::{
+        mqtt::{self, add_on::action_message::StatusMessage},
+        state_file,
+    },
 };
 
 pub struct Plugin {
@@ -15,21 +17,15 @@ pub struct Plugin {
 }
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<AeroponicSprayManager>()
+        app.init_resource::<Manager>()
             .insert_resource(self.config.clone())
             .add_plugins((
-                StatusMessage::<AeroponicSprayManager>::publish_condition(on_timer(
+                StatusMessage::<Manager>::publish_condition(on_timer(
                     std::time::Duration::from_secs(1),
                 )),
-                state_file::StateFile::<AeroponicSprayManager>::new(),
+                state_file::StateFile::<Manager>::new(),
             ))
-            .add_systems(
-                Update,
-                (
-                    AeroponicSprayManager::watcher,
-                    AeroponicSprayManager::update_switch,
-                ),
-            );
+            .add_systems(Update, (Manager::watcher, Manager::update_switch));
     }
 }
 
@@ -48,16 +44,16 @@ impl Default for Config {
 }
 
 #[derive(Debug, Resource, serde::Serialize, serde::Deserialize, Clone)]
-pub struct AeroponicSprayManager {
+pub struct Manager {
     sprayer_state: bool,
     next_spray_time: time::OffsetDateTime,
 }
-impl AeroponicSprayManager {
+impl Manager {
     pub fn set_state(&mut self, new_state: bool) {
         self.sprayer_state = new_state;
     }
 
-    fn update_switch(mut switch_manager: ResMut<switch::SwitchManager>, this: Res<Self>) {
+    fn update_switch(mut switch_manager: ResMut<switch::Manager>, this: Res<Self>) {
         if this.is_changed() {
             if let Err(e) = switch_manager.update_state(switch::action::Update {
                 switch_1: None,
@@ -91,7 +87,7 @@ impl AeroponicSprayManager {
         }
     }
 }
-impl Default for AeroponicSprayManager {
+impl Default for Manager {
     fn default() -> Self {
         Self {
             sprayer_state: Default::default(),
@@ -99,7 +95,7 @@ impl Default for AeroponicSprayManager {
         }
     }
 }
-impl state_file::SaveState for AeroponicSprayManager {
+impl state_file::SaveState for Manager {
     type State<'de> = Self;
 
     const FILENAME: &str = "aeroponic_spray_manager";
@@ -114,13 +110,13 @@ impl state_file::SaveState for AeroponicSprayManager {
         state
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {
+impl mqtt::add_on::action_message::PublishStatus for Manager {
     type Status = action::Status;
 
     fn get_status(&self) -> Self::Status {
         let next_spray_time = if !self.sprayer_state {
             self.next_spray_time
-                .to_offset(*timezone_offset())
+                .to_offset(*crate::timezone_offset())
                 .to_string()
                 .into()
         } else {
@@ -135,7 +131,7 @@ impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {
 }
 
 pub mod action {
-    use crate::{constants, helper::AtomicFixedString, mqtt};
+    use crate::{constants, AtomicFixedString, plugins::mqtt};
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Status {

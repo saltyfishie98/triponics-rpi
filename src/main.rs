@@ -1,10 +1,15 @@
 mod config;
 mod constants;
 mod helper;
-mod manager;
-mod mqtt;
+mod plugins;
 
-use std::{sync::LazyLock, time::Duration};
+mod newtype;
+use newtype::*;
+
+mod globals;
+use globals::*;
+
+use std::time::Duration;
 
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
 use bevy_ecs::{
@@ -26,21 +31,13 @@ pub struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-
-    helper::init_logging(args.stdout);
-
-    let config = config::AppConfig::load();
-    log::debug!("config:\n{config:#?}");
-
-    let config::AppConfig {
+    let (config::AppConfig {
         mqtt:
             config::app::mqtt::Config {
-                topic_source: _,
                 create_options: client_create_options,
                 connect_options: client_connect_options,
             },
-    } = config;
+    },) = local::try_init();
 
     App::new()
         .add_plugins((
@@ -50,26 +47,20 @@ fn main() -> anyhow::Result<()> {
             TokioTasksPlugin::default(),
         ))
         .add_plugins((
-            mqtt::MqttPlugin {
+            plugins::state_file::Plugin::default(),
+            plugins::mqtt::Plugin {
                 client_create_options,
                 client_connect_options,
             },
-            manager::state_file::Plugin::default(),
         ))
         .add_plugins((
-            manager::switch::Plugin,
-            manager::growlight::Plugin,
-            manager::aeroponic_spray::Plugin {
+            plugins::manager::switch::Plugin,
+            plugins::manager::growlight::Plugin,
+            plugins::manager::aeroponic_spray::Plugin {
                 config: Default::default(),
             },
         ))
-        .add_systems(
-            Startup,
-            (
-                local::exit_task, //
-                local::Counter::subscribe,
-            ),
-        )
+        .add_systems(Startup, (local::exit_task, local::Counter::subscribe))
         .add_systems(Update, (local::Counter::log_msg,))
         .run();
 
@@ -78,25 +69,20 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn data_directory() -> &'static std::path::Path {
-    static DATA_DIRECTORY: LazyLock<std::path::PathBuf> = LazyLock::new(|| {
-        let mut cwd = std::env::current_dir().unwrap();
-        cwd.push("data");
-        cwd
-    });
-    DATA_DIRECTORY.as_path()
-}
-
-fn timezone_offset() -> &'static time::UtcOffset {
-    static TIMEZONE_OFFSET: LazyLock<time::UtcOffset> = LazyLock::new(|| time::macros::offset!(+8));
-
-    &TIMEZONE_OFFSET
-}
-
 mod local {
     use helper::ErrorLogFormat;
 
     use super::*;
+
+    pub fn try_init() -> (config::AppConfig,) {
+        let args = Args::parse();
+        helper::init_logging(args.stdout);
+
+        let config = config::AppConfig::load();
+        log::debug!("config:\n{config:#?}");
+
+        (config,)
+    }
 
     pub fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         rt.spawn_background_task(|mut ctx| async move {
@@ -104,23 +90,23 @@ mod local {
             ctx.run_on_main_thread(move |ctx| {
                 let world = ctx.world;
 
-                manager::state_file::Plugin::disable(world);
+                plugins::state_file::Plugin::disable(world);
 
                 if let Some(mut switch_manager) =
-                    world.remove_resource::<manager::switch::SwitchManager>()
+                    world.remove_resource::<plugins::manager::SwitchManager>()
                 {
-                    if let Err(e) =
-                        switch_manager.update_state(manager::switch::action::Update::default())
+                    if let Err(e) = switch_manager
+                        .update_state(plugins::manager::switch::action::Update::default())
                     {
                         log::error!("failed to reset switch states, reason:\n{}", e.fmt_error());
                     }
                 }
 
                 if let Some(mut growlight_manager) =
-                    world.remove_resource::<manager::growlight::GrowlightManager>()
+                    world.remove_resource::<plugins::manager::GrowlightManager>()
                 {
                     if let Err(e) = growlight_manager
-                        .update_state(manager::growlight::action::Update::default())
+                        .update_state(plugins::manager::growlight::action::Update::default())
                     {
                         log::error!(
                             "failed to reset growlight states, reason:\n{}",
@@ -140,13 +126,13 @@ mod local {
         data: u32,
         datetime: String,
     }
-    impl mqtt::message::MessageInfo for Counter {
-        fn topic() -> helper::AtomicFixedString {
+    impl plugins::mqtt::message::MessageInfo for Counter {
+        fn topic() -> AtomicFixedString {
             "test".into()
         }
 
-        fn qos() -> mqtt::Qos {
-            mqtt::Qos::_1
+        fn qos() -> plugins::mqtt::Qos {
+            plugins::mqtt::Qos::_1
         }
     }
     impl Counter {
@@ -156,13 +142,13 @@ mod local {
                 datetime: local::local_time_now_str(),
             });
             cmd.spawn(
-                mqtt::message::Subscriptions::new()
+                plugins::mqtt::message::Subscriptions::new()
                     .with_msg::<Counter>()
                     .finalize(),
             );
         }
 
-        pub fn log_msg(mut ev_reader: EventReader<mqtt::event::IncomingMessage>) {
+        pub fn log_msg(mut ev_reader: EventReader<plugins::mqtt::event::IncomingMessage>) {
             while let Some(incoming_msg) = ev_reader.read().next() {
                 if let Some(msg) = incoming_msg.get::<Counter>() {
                     log::debug!("receive mqtt msg: {:?}", msg)

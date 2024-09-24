@@ -33,11 +33,10 @@ impl AppConfig {
 }
 
 pub mod mqtt {
-    use crate::{helper::AtomicFixedString, mqtt};
+    use crate::plugins::mqtt;
 
     #[derive(serde::Serialize, serde::Deserialize, Debug)]
     pub struct Config {
-        pub topic_source: AtomicFixedString,
         pub create_options: mqtt::ClientCreateOptions,
         pub connect_options: mqtt::ClientConnectOptions,
     }

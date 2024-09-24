@@ -5,29 +5,30 @@ use crate::{
     constants,
     helper::{self, ErrorLogFormat},
     log,
-    mqtt::{self, add_on::action_message::PublishStatus},
+    plugins::{
+        mqtt::{self, add_on::action_message::PublishStatus},
+        state_file,
+    },
 };
-
-use super::state_file;
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<GrowlightManager>().add_plugins((
-            state_file::StateFile::<GrowlightManager>::new(),
-            mqtt::add_on::action_message::RequestMessage::<GrowlightManager>::new(),
-            mqtt::add_on::action_message::StatusMessage::<GrowlightManager>::publish_condition(
-                on_timer(std::time::Duration::from_secs(1)),
-            ),
+        app.init_resource::<Manager>().add_plugins((
+            state_file::StateFile::<Manager>::new(),
+            mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
+            mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(on_timer(
+                std::time::Duration::from_secs(1),
+            )),
         ));
     }
 }
 
 #[derive(Debug, Resource)]
-pub struct GrowlightManager {
+pub struct Manager {
     gpio: rppal::gpio::OutputPin,
 }
-impl GrowlightManager {
+impl Manager {
     fn init() -> ResultStack<Self> {
         let mut gpio = rppal::gpio::Gpio::new()
             .map_err(|e| {
@@ -54,12 +55,12 @@ impl GrowlightManager {
         Ok(())
     }
 }
-impl Default for GrowlightManager {
+impl Default for Manager {
     fn default() -> Self {
         Self::init().unwrap()
     }
 }
-impl state_file::SaveState for GrowlightManager {
+impl state_file::SaveState for Manager {
     const FILENAME: &str = "growlight_manager";
     type State<'de> = action::Update;
 
@@ -75,7 +76,7 @@ impl state_file::SaveState for GrowlightManager {
         }
     }
 }
-impl mqtt::add_on::action_message::RequestHandler for GrowlightManager {
+impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Request = action::Update;
     type Response = action::MqttResponse;
 
@@ -91,7 +92,7 @@ impl mqtt::add_on::action_message::RequestHandler for GrowlightManager {
         ))
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for GrowlightManager {
+impl mqtt::add_on::action_message::PublishStatus for Manager {
     type Status = action::MqttStatus;
 
     fn get_status(&self) -> Self::Status {
@@ -102,7 +103,7 @@ impl mqtt::add_on::action_message::PublishStatus for GrowlightManager {
 }
 
 pub mod action {
-    use crate::{constants, helper::AtomicFixedString, mqtt};
+    use crate::{constants, AtomicFixedString, plugins::mqtt};
 
     const GROUP: &str = "growlight";
     const QOS: mqtt::Qos = mqtt::Qos::_1;

@@ -9,7 +9,7 @@ pub use wrapper::*;
 
 use std::time::Duration;
 
-use bevy_app::{Plugin, Update};
+use bevy_app::Update;
 use bevy_ecs::{
     entity::Entity,
     event::{EventReader, EventWriter},
@@ -24,16 +24,13 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::{
-    helper::{AsyncEventExt, AtomicFixedString},
-    log,
-};
+use crate::{helper::AsyncEventExt, log, AtomicFixedString};
 
-pub struct MqttPlugin {
+pub struct Plugin {
     pub client_create_options: ClientCreateOptions,
     pub client_connect_options: ClientConnectOptions,
 }
-impl Plugin for MqttPlugin {
+impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         let (mqtt_incoming_msg_queue, mqtt_incoming_msg_rx) =
             std::sync::mpsc::channel::<event::IncomingMessage>();
@@ -70,7 +67,7 @@ impl Plugin for MqttPlugin {
             .send_event(event::RestartClient("initial restart"));
     }
 }
-impl MqttPlugin {
+impl Plugin {
     fn restart_client(
         mut cmd: Commands,
         mut ev: EventReader<event::RestartClient>,
@@ -450,8 +447,9 @@ pub mod message {
     use bevy_ecs::component::Component;
     use serde::de::DeserializeOwned;
 
+    use crate::{AtomicFixedBytes, AtomicFixedString};
+
     use super::Qos;
-    use crate::helper::{AtomicFixedBytes, AtomicFixedString};
 
     pub trait MessageInfo
     where
@@ -539,8 +537,9 @@ mod local {
     use bevy_ecs::system::Resource;
     use tokio::sync::Mutex;
 
+    use crate::AtomicFixedString;
+
     use super::{event, log, message, Qos};
-    use crate::helper::AtomicFixedString;
 
     #[derive(Debug, Resource)]
     pub struct MqttCacheManager {
@@ -553,7 +552,7 @@ mod local {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
 
             let conn = rusqlite::Connection::open(path).unwrap();
-            conn.execute(include_str!("../sql/create_table.sql"), ())
+            conn.execute(include_str!("../../sql/create_table.sql"), ())
                 .unwrap();
 
             static DB_CONNECTION: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
@@ -571,7 +570,7 @@ mod local {
             let msg_1 = msg.clone();
             let out = Ok(conn
                 .execute(
-                    include_str!("../sql/add_data.sql"),
+                    include_str!("../../sql/add_data.sql"),
                     (
                         time::OffsetDateTime::now_utc().unix_timestamp(),
                         postcard::to_allocvec(msg)?,
@@ -589,7 +588,7 @@ mod local {
         ) -> anyhow::Result<Vec<message::Message>> {
             let conn = conn.lock().await;
 
-            let mut stmt = conn.prepare(include_str!("../sql/read_data.sql"))?;
+            let mut stmt = conn.prepare(include_str!("../../sql/read_data.sql"))?;
             let rows = stmt.query_map([count], |row| row.get::<usize, Vec<u8>>(0))?;
 
             let out = rows
@@ -598,7 +597,7 @@ mod local {
                 })
                 .collect::<Result<Vec<_>, _>>();
 
-            if let Err(e) = conn.execute(include_str!("../sql/delete_data.sql"), [count]) {
+            if let Err(e) = conn.execute(include_str!("../../sql/delete_data.sql"), [count]) {
                 log::warn!("failed to delete cached data, reason {e}");
             }
 

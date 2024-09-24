@@ -4,28 +4,29 @@ use bevy_internal::time::common_conditions::on_timer;
 use crate::{
     constants,
     helper::{self, ErrorLogFormat},
-    log, mqtt,
+    log,
+    plugins::mqtt,
 };
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<SwitchManager>().add_plugins((
-            mqtt::add_on::action_message::RequestMessage::<SwitchManager>::new(),
-            mqtt::add_on::action_message::StatusMessage::<SwitchManager>::publish_condition(
-                on_timer(std::time::Duration::from_secs(1)),
-            ),
+        app.init_resource::<Manager>().add_plugins((
+            mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
+            mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(on_timer(
+                std::time::Duration::from_secs(1),
+            )),
         ));
     }
 }
 
 #[derive(Debug, Resource)]
-pub struct SwitchManager {
+pub struct Manager {
     gpio_switch_1: rppal::gpio::OutputPin,
     gpio_switch_2: rppal::gpio::OutputPin,
     gpio_switch_3: rppal::gpio::OutputPin,
 }
-impl SwitchManager {
+impl Manager {
     pub fn init() -> ResultStack<Self> {
         fn init_gpio(pin: u8) -> ResultStack<rppal::gpio::OutputPin> {
             let mut out = rppal::gpio::Gpio::new()
@@ -76,14 +77,14 @@ impl SwitchManager {
         Ok(())
     }
 }
-impl Default for SwitchManager {
+impl Default for Manager {
     fn default() -> Self {
         Self::init()
             .map_err(|e| log::error!("\n{}", e.fmt_error()))
             .unwrap()
     }
 }
-impl mqtt::add_on::action_message::RequestHandler for SwitchManager {
+impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Request = action::Update;
     type Response = action::MqttResponse;
 
@@ -99,7 +100,7 @@ impl mqtt::add_on::action_message::RequestHandler for SwitchManager {
         ))
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for SwitchManager {
+impl mqtt::add_on::action_message::PublishStatus for Manager {
     type Status = action::MqttStatus;
 
     fn get_status(&self) -> Self::Status {
@@ -112,7 +113,7 @@ impl mqtt::add_on::action_message::PublishStatus for SwitchManager {
 }
 
 pub mod action {
-    use crate::{constants, helper::AtomicFixedString, mqtt};
+    use crate::{constants, plugins::mqtt, AtomicFixedString};
 
     const GROUP: &str = "switch";
     const QOS: mqtt::Qos = mqtt::Qos::_1;

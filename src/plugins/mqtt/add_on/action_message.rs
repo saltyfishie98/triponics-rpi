@@ -7,14 +7,16 @@ use bevy_ecs::{
     system::{Commands, IntoSystem, Res, ResMut, Resource},
 };
 
-use super::super::Qos;
-use crate::mqtt::{
-    self,
-    message::{self, MessageInfo},
-};
-
 #[allow(unused_imports)]
 use crate::log;
+use crate::{
+    plugins::mqtt::{
+        self,
+        message::{self, MessageInfo},
+        Qos,
+    },
+    AtomicFixedString,
+};
 
 pub trait MessageImpl
 where
@@ -27,7 +29,7 @@ where
     const QOS: Qos;
 }
 impl<T: MessageImpl> MessageInfo for T {
-    fn topic() -> crate::helper::AtomicFixedString {
+    fn topic() -> AtomicFixedString {
         format!(
             "{}/{}/{}/{}",
             T::Type::PREFIX,

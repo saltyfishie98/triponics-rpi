@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use bevy_ecs::system::Resource;
 use serde_with::serde_as;
 
-use crate::helper::AtomicFixedString;
+use crate::AtomicFixedString;
 
 use super::PersistenceType;
 
