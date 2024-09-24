@@ -1,21 +1,27 @@
-use bevy_ecs::system::Resource;
+use bevy_app::Startup;
+use bevy_ecs::system::{Commands, Res, Resource};
 use bevy_internal::time::common_conditions::on_timer;
 
 use crate::{
     constants,
     helper::{self, ErrorLogFormat},
-    log, mqtt,
+    log,
+    mqtt::{self, add_on::action_message::PublishStatus},
 };
+
+use super::state_file;
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<GrowlightManager>().add_plugins((
+        app.add_plugins((
+            state_file::StateFile::<GrowlightManager>::new(),
             mqtt::add_on::action_message::RequestMessage::<GrowlightManager>::new(),
             mqtt::add_on::action_message::StatusMessage::<GrowlightManager>::publish_condition(
                 on_timer(std::time::Duration::from_secs(1)),
             ),
-        ));
+        ))
+        .add_systems(Startup, GrowlightManager::setup);
     }
 }
 
@@ -49,12 +55,32 @@ impl GrowlightManager {
         helper::relay::set_state(&mut self.gpio, state);
         Ok(())
     }
+
+    pub fn setup(mut cmd: Commands, maybe_this: Option<Res<Self>>) {
+        if maybe_this.is_none() {
+            cmd.init_resource::<Self>();
+        }
+    }
 }
 impl Default for GrowlightManager {
     fn default() -> Self {
-        Self::init()
-            .map_err(|e| log::error!("\n{}", e.fmt_error()))
-            .unwrap()
+        Self::init().unwrap()
+    }
+}
+impl state_file::SaveState for GrowlightManager {
+    const FILENAME: &str = "growlight_manager";
+    type State<'de> = action::Update;
+
+    fn build(state: Self::State<'_>) -> Self {
+        let mut this = Self::init().unwrap();
+        this.update_state(state).unwrap();
+        Self { gpio: this.gpio }
+    }
+
+    fn save<'de>(&self) -> Self::State<'de> {
+        Self::State {
+            state: self.get_status().state,
+        }
     }
 }
 impl mqtt::add_on::action_message::RequestHandler for GrowlightManager {

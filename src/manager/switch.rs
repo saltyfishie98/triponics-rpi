@@ -26,8 +26,8 @@ pub struct SwitchManager {
     gpio_switch_3: rppal::gpio::OutputPin,
 }
 impl SwitchManager {
-    pub fn init() -> Result<Self> {
-        fn init_gpio(pin: u8) -> Result<rppal::gpio::OutputPin> {
+    pub fn init() -> ResultStack<Self> {
+        fn init_gpio(pin: u8) -> ResultStack<rppal::gpio::OutputPin> {
             let mut out = rppal::gpio::Gpio::new()
                 .map_err(|e| {
                     error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
@@ -49,7 +49,7 @@ impl SwitchManager {
         })
     }
 
-    pub fn update_state(&mut self, request: action::Update) -> Result<()> {
+    pub fn update_state(&mut self, request: action::Update) -> ResultStack<()> {
         fn update(pin: &mut rppal::gpio::OutputPin, new_state: Option<bool>, flip: bool) {
             if let Some(request_state) = new_state {
                 let state = if !flip {
@@ -123,6 +123,15 @@ pub mod action {
         pub switch_2: Option<bool>,
         pub switch_3: Option<bool>,
     }
+    impl Default for Update {
+        fn default() -> Self {
+            Self {
+                switch_1: Some(false),
+                switch_2: Some(false),
+                switch_3: Some(false),
+            }
+        }
+    }
     impl mqtt::add_on::action_message::MessageImpl for Update {
         type Type = mqtt::add_on::action_message::action_type::Request;
         const PROJECT: &'static str = constants::project::NAME;
@@ -162,4 +171,4 @@ pub enum Error {
     Setup,
 }
 
-type Result<T> = error_stack::Result<T, Error>;
+type ResultStack<T> = error_stack::Result<T, Error>;

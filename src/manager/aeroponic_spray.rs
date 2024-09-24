@@ -2,7 +2,7 @@ use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
-use super::switch;
+use super::{state_file, switch};
 use crate::{
     helper::ErrorLogFormat,
     log,
@@ -44,11 +44,10 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Resource)]
+#[derive(Debug, Resource, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AeroponicSprayManager {
     state: bool,
     next_spray_time: time::OffsetDateTime,
-    db_conn: std::sync::Mutex<rusqlite::Connection>,
 }
 impl AeroponicSprayManager {
     pub fn set_state(&mut self, new_state: bool) {
@@ -91,18 +90,23 @@ impl AeroponicSprayManager {
 }
 impl Default for AeroponicSprayManager {
     fn default() -> Self {
-        let mut path = crate::data_directory().to_path_buf();
-        path.push("data.db3");
-
-        let conn = rusqlite::Connection::open(path)
-            .map_err(|e| log::error!("{e}",))
-            .unwrap();
-
         Self {
             state: Default::default(),
-            db_conn: std::sync::Mutex::new(conn),
             next_spray_time: time::OffsetDateTime::now_utc(),
         }
+    }
+}
+impl state_file::SaveState for AeroponicSprayManager {
+    type State<'de> = Self;
+
+    const FILENAME: &str = "aeroponic_spray_manager";
+
+    fn build(state: Self::State<'_>) -> Self {
+        state
+    }
+
+    fn save<'de>(&self) -> Self::State<'de> {
+        self.clone()
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for AeroponicSprayManager {

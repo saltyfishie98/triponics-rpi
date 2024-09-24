@@ -59,6 +59,7 @@ fn main() -> anyhow::Result<()> {
             manager::aeroponic_spray::Plugin {
                 config: Default::default(),
             },
+            manager::state_file::Plugin::default(),
         ))
         .add_systems(
             Startup,
