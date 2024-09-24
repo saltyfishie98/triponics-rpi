@@ -69,10 +69,10 @@ impl Manager {
             }
         }
 
-        log::trace!("switch manager update state: \n{:#?}", request);
         update(&mut self.gpio_switch_1, request.switch_1, false);
         update(&mut self.gpio_switch_2, request.switch_2, false);
         update(&mut self.gpio_switch_3, request.switch_3, true);
+        log::trace!("[switch] state updated -> {:?}", request);
 
         Ok(())
     }
@@ -89,6 +89,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Response = action::MqttResponse;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+        log::info!("[switch] <ACT_MSG> set -> {request}");
+
         Some(action::MqttResponse(
             state
                 .update_state(request)
@@ -101,7 +103,7 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::MqttStatus;
+    type Status = action::SwitchStatus;
 
     fn get_status(&self) -> Self::Status {
         Self::Status {
@@ -133,6 +135,33 @@ pub mod action {
             }
         }
     }
+    impl std::fmt::Display for Update {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fn show_state(b: bool) -> &'static str {
+                if b {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            }
+
+            let mut disp = f.debug_map();
+
+            if let Some(sw) = self.switch_1 {
+                disp.entry(&"switch_1", &show_state(sw));
+            }
+
+            if let Some(sw) = self.switch_2 {
+                disp.entry(&"switch_2", &show_state(sw));
+            }
+
+            if let Some(sw) = self.switch_3 {
+                disp.entry(&"switch_3", &show_state(sw));
+            }
+
+            disp.finish()
+        }
+    }
     impl mqtt::add_on::action_message::MessageImpl for Update {
         type Type = mqtt::add_on::action_message::action_type::Request;
         const PROJECT: &'static str = constants::project::NAME;
@@ -142,12 +171,12 @@ pub mod action {
     }
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct MqttStatus {
+    pub struct SwitchStatus {
         pub switch_1: bool,
         pub switch_2: bool,
         pub switch_3: bool,
     }
-    impl mqtt::add_on::action_message::MessageImpl for MqttStatus {
+    impl mqtt::add_on::action_message::MessageImpl for SwitchStatus {
         type Type = mqtt::add_on::action_message::action_type::Status;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;

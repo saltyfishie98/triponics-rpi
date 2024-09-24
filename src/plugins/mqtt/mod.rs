@@ -80,30 +80,33 @@ impl Plugin {
             mqtt_msg_tx: std::sync::mpsc::Sender<event::IncomingMessage>,
             mut stream: paho_mqtt::AsyncReceiver<Option<paho_mqtt::Message>>,
         ) {
-            log::debug!("started recv task!");
+            log::trace!("[mqtt] started receive task!");
 
             while let Some(msg) = stream.next().await {
                 match msg {
                     Some(msg) => {
-                        log::trace!("polled mqtt msg");
-                        log::debug!("received msg -> {}: {}", msg.topic(), msg.payload_str());
+                        log::trace!(
+                            "[mqtt] received msg -> {}: {}",
+                            msg.topic(),
+                            msg.payload_str()
+                        );
                         if let Err(e) = mqtt_msg_tx.send(event::IncomingMessage(msg)) {
-                            log::warn!("{e}");
+                            log::warn!("[mqtt] failed to forward received message, reason: {e}");
                         }
                     }
                     None => {
-                        log::trace!("disconnected");
+                        log::trace!("[mqtt] client disconnected");
                     }
                 }
             }
         }
 
-        async fn ping_task(client: paho_mqtt::AsyncClient, duration: Duration) {
+        async fn mqtt_ping_task(client: paho_mqtt::AsyncClient, duration: Duration) {
             let ping_interval = Duration::from_secs_f32(duration.as_secs_f32() * 0.7);
-            log::debug!("ping interval: {}", ping_interval.as_secs_f32());
+            log::debug!("[mqtt] ping interval: {}", ping_interval.as_secs_f32());
 
             loop {
-                log::trace!("ping mqtt");
+                log::trace!("[mqtt] ping!");
                 client.publish(paho_mqtt::Message::new(
                     format!("{}/ping", client.client_id()),
                     [0u8],
@@ -131,9 +134,9 @@ impl Plugin {
                 std::process::exit(1);
             });
 
-            client.set_connected_callback(|_| log::trace!("CALLBACK: mqtt client connected"));
+            client.set_connected_callback(|_| log::trace!("[mqtt] client connected (callback)"));
             client.set_disconnected_callback(|_, _, _| {
-                log::trace!("CALLBACK: mqtt client disconnected")
+                log::trace!("[mqtt] client disconnected (callback)")
             });
 
             let strm = client.get_stream(stream_size);
@@ -141,7 +144,7 @@ impl Plugin {
 
             if let Some((topics, qos)) = sub_info {
                 client.subscribe_many(&topics, &qos).await?;
-                log::info!("subscribed to mqtt topics: {topics:?}");
+                log::debug!("[mqtt] subscribed to topics: {topics:?}");
             }
 
             Ok((client, strm))
@@ -167,7 +170,7 @@ impl Plugin {
 
         cmd.add(|world: &mut World| {
             if let Some(old_client) = world.remove_resource::<local::MqttClient>() {
-                log::debug!("removed old client");
+                log::trace!("[mqtt] removed old client");
                 let local::MqttClient {
                     inner_client,
                     recv_task,
@@ -216,7 +219,7 @@ impl Plugin {
                         };
 
                         rt.spawn_background_task(move |_| async move {
-                            log::debug!("mqtt client restart triggered, reason: {reason}");
+                            log::info!("[mqtt] client restart triggered, reason: {reason}");
                             tx.send(local::NewMqttClient(
                                 make_client(
                                     paho_create_opts,
@@ -242,11 +245,11 @@ impl Plugin {
 
                     match rx.try_recv() {
                         Err(crossbeam_channel::TryRecvError::Empty) => {
-                            log::trace!("mqtt client restarting...");
+                            log::trace!("[mqtt] client restarting...");
                             return;
                         }
                         Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                            log::error!("can't received new mqtt client");
+                            log::error!("[mqtt] client factory channel disconnected");
                         }
                         Ok(local::NewMqttClient(Ok((client, stream)))) => {
                             let rt = world.get_resource::<TokioTasksRuntime>().unwrap();
@@ -263,12 +266,12 @@ impl Plugin {
                                 let ping_client = client.clone();
                                 rt.spawn_background_task(move |_| async move {
                                     if let Some(duration) = connect_opts.keep_alive_interval {
-                                        ping_task(ping_client, duration).await;
+                                        mqtt_ping_task(ping_client, duration).await;
                                     }
                                 })
                             };
 
-                            log::info!("mqtt client restarted");
+                            log::info!("[mqtt] client restarted");
                             world.insert_resource(local::MqttClient {
                                 inner_client: client,
                                 recv_task,
@@ -276,7 +279,7 @@ impl Plugin {
                             })
                         }
                         Ok(local::NewMqttClient(Err(e))) => {
-                            log::warn!("failed to restart mqtt client, reason: {e}");
+                            log::warn!("[mqtt] failed to restart client, reason: {e}");
                             world.send_event(event::RestartClient("failed to connect"));
                         }
                     }
@@ -299,7 +302,7 @@ impl Plugin {
         client: Option<ResMut<local::MqttClient>>,
     ) {
         if client.is_none() {
-            log::trace!("publish cache -> blocked by unavailable mqtt client");
+            log::trace!("[mqtt] publish cache -> blocked by unavailable mqtt client");
             restarter.send(event::RestartClient("client not present"));
             return;
         }
@@ -307,7 +310,7 @@ impl Plugin {
         let client = client.unwrap();
 
         if !client.inner_client.is_connected() {
-            log::trace!("publish cache -> blocked by mqtt client not connected");
+            log::debug!("[mqtt] publish cache -> blocked by mqtt client not connected");
             restarter.send(event::RestartClient("client not connected"));
             return;
         }
@@ -322,7 +325,7 @@ impl Plugin {
             Ok(msg_vec) => msg_vec.into_iter().for_each(|msg| {
                 cmd.spawn(msg);
             }),
-            Err(e) => log::warn!("failed to read from cache, reason: {e}"),
+            Err(e) => log::warn!("[mqtt] failed to read from cache, reason: {e}"),
         }
     }
 
@@ -343,14 +346,13 @@ impl Plugin {
             ),
         ) {
             rt.spawn_background_task(move |_| async move {
-                log::trace!("staged -> {msg:?}");
                 match maybe_client {
                     Some(client) => match client.try_publish(msg.clone().into()) {
                         Ok(o) => {
-                            log::debug!("published msg -> {}", o.message());
+                            log::debug!("[mqtt] published msg -> {}", o.message());
                         }
                         Err(e) => {
-                            log::warn!("failed to publish message, reason {e}");
+                            log::warn!("[mqtt] failed to publish message, reason {e}");
                             local::MqttCacheManager::add(cache, &msg).await.unwrap();
                         }
                     },
@@ -364,7 +366,7 @@ impl Plugin {
         match client {
             Some(client) => {
                 if !client.inner_client.is_connected() {
-                    log::trace!("not connected");
+                    log::trace!("[mqtt] client not connected to broker");
                     return;
                 }
 
@@ -381,7 +383,7 @@ impl Plugin {
                     .for_each(process_msg);
             }
             None => {
-                log::trace!("no client");
+                log::trace!("[mqtt] client object unavailable");
                 query
                     .iter_mut()
                     .map(|msg| (&rt, msg.clone(), None, cache_manager.connection))
@@ -420,7 +422,9 @@ impl Plugin {
 
                             rt.spawn_background_task(move |mut ctx| async move {
                                 if let Err(e) = handle.await {
-                                    log::warn!("failed subscribing to {topics:?}, reason: {e}");
+                                    log::warn!(
+                                        "[mqtt] failed subscribing to {topics:?}, reason: {e}"
+                                    );
                                 } else {
                                     ctx.run_on_main_thread(move |ctx| {
                                         let mut subs = ctx
@@ -428,7 +432,7 @@ impl Plugin {
                                             .get_resource_mut::<local::MqttSubscriptions>()
                                             .unwrap();
                                         subs.0.extend_from_slice(&new_sub);
-                                        log::info!("subscribed to topics {topics:?}");
+                                        log::info!("[mqtt] subscribed to topics {topics:?}");
                                     })
                                     .await;
                                 }
@@ -578,7 +582,7 @@ mod local {
                 )
                 .map(|_| ())?);
 
-            log::debug!("cached -> {msg_1:?}");
+            log::trace!("[mqtt] cached -> {msg_1:?}");
             out
         }
 
@@ -598,7 +602,7 @@ mod local {
                 .collect::<Result<Vec<_>, _>>();
 
             if let Err(e) = conn.execute(include_str!("../../sql/delete_data.sql"), [count]) {
-                log::warn!("failed to delete cached data, reason {e}");
+                log::warn!("[mqtt] failed to delete cached data, reason {e}");
             }
 
             out

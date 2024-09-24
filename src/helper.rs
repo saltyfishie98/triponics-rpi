@@ -8,73 +8,8 @@ use bevy_ecs::event::EventWriter;
 use bevy_ecs::system::Resource;
 use bevy_ecs::{event::Event, system::Res};
 use bevy_internal::prelude::{Deref, DerefMut};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 use crate::AtomicFixedString;
-
-pub fn init_logging(to_stdout: bool) {
-    let mut data_path = crate::data_directory().to_path_buf();
-    data_path.push("app.log");
-
-    let expected = "Failed to set subscriber";
-    let subscriber = Registry::default().with(
-        #[cfg(debug_assertions)]
-        {
-            EnvFilter::try_from_env("LOGGING").unwrap_or(EnvFilter::new("info"))
-        },
-        #[cfg(not(debug_assertions))]
-        {
-            EnvFilter::try_from_env("LOGGING").unwrap_or(EnvFilter::new("info"))
-        },
-    );
-
-    #[cfg(debug_assertions)]
-    {
-        let _ = to_stdout;
-        let layer = fmt::Layer::default()
-            .with_thread_ids(true)
-            .with_file(true)
-            .with_target(false)
-            .with_line_number(true)
-            .with_timer(fmt::time::OffsetTime::new(
-                *crate::timezone_offset(),
-                time::macros::format_description!(
-                    "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
-                ),
-            ));
-
-        tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        let layer = fmt::Layer::default()
-            .with_file(true)
-            .with_target(false)
-            .with_line_number(true)
-            .with_timer(fmt::time::OffsetTime::new(
-                *crate::timezone_offset(),
-                time::macros::format_description!(
-                    "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
-                ),
-            ));
-
-        if !to_stdout {
-            let file = std::fs::OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(data_path)
-                .unwrap();
-
-            let layer = layer.with_writer(file).with_ansi(false);
-
-            tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
-        } else {
-            tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
-        }
-    }
-}
 
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);

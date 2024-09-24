@@ -52,6 +52,7 @@ impl Manager {
         };
 
         helper::relay::set_state(&mut self.gpio, state);
+        log::trace!("[growlight] state updated -> {:?}", request);
         Ok(())
     }
 }
@@ -81,6 +82,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Response = action::MqttResponse;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+        log::info!("[growlight] <ACT_MSG> set -> {}", request);
+
         Some(action::MqttResponse(
             state
                 .update_state(request)
@@ -103,7 +106,7 @@ impl mqtt::add_on::action_message::PublishStatus for Manager {
 }
 
 pub mod action {
-    use crate::{constants, AtomicFixedString, plugins::mqtt};
+    use crate::{constants, plugins::mqtt, AtomicFixedString};
 
     const GROUP: &str = "growlight";
     const QOS: mqtt::Qos = mqtt::Qos::_1;
@@ -111,6 +114,15 @@ pub mod action {
     #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
     pub struct Update {
         pub state: bool,
+    }
+    impl std::fmt::Display for Update {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            if self.state {
+                write!(f, "ON")
+            } else {
+                write!(f, "OFF")
+            }
+        }
     }
     impl mqtt::add_on::action_message::MessageImpl for Update {
         type Type = mqtt::add_on::action_message::action_type::Request;

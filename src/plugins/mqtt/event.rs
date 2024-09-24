@@ -16,7 +16,7 @@ impl IncomingMessage {
             match serde_json::from_slice(msg.payload()) {
                 Ok(out) => Some(out),
                 Err(e) => {
-                    log::warn!("error reading incoming mqtt message, reason: {e}");
+                    log::warn!("[mqtt] error reading incoming message, reason: {e}");
                     None
                 }
             }

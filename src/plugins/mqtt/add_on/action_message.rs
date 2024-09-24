@@ -81,7 +81,7 @@ where
         let _ = request;
         let _ = state;
 
-        log::debug!("ignored received request -> {request:?}");
+        log::warn!("[action_msg] ignored received request -> {request:?}");
 
         None
     }
@@ -148,6 +148,7 @@ where
             _p: PhantomData::<T>,
         }
     }
+
     fn subscribe_request(mut cmd: Commands) {
         cmd.spawn(
             mqtt::message::Subscriptions::new()

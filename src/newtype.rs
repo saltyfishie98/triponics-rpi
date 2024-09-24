@@ -59,7 +59,7 @@ impl AsRef<[u8]> for AtomicFixedBytes {
     }
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Default, Eq, PartialEq, Hash)]
 pub struct AtomicFixedString(
     #[serde(
         serialize_with = "serialize_arc_str",
@@ -89,6 +89,11 @@ impl AsRef<str> for AtomicFixedString {
 }
 impl std::fmt::Display for AtomicFixedString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+impl std::fmt::Debug for AtomicFixedString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }

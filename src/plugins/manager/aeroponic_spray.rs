@@ -49,8 +49,9 @@ pub struct Manager {
     next_spray_time: time::OffsetDateTime,
 }
 impl Manager {
-    pub fn set_state(&mut self, new_state: bool) {
+    pub fn update_state(&mut self, new_state: bool) {
         self.sprayer_state = new_state;
+        log::trace!("[aeroponic_spray] state updated -> {:?}", new_state);
     }
 
     fn update_switch(mut switch_manager: ResMut<switch::Manager>, this: Res<Self>) {
@@ -74,16 +75,38 @@ impl Manager {
 
         if let Some(end_time) = *maybe_end_time {
             if end_time <= now {
-                this.set_state(false);
+                this.update_state(false);
                 *maybe_end_time = None;
                 this.next_spray_time = now + config.spray_interval;
+
+                let next_spray_local_time = {
+                    let o = this.next_spray_time;
+                    o.to_offset(*crate::timezone_offset())
+                        .format(&crate::time_log_fmt())
+                        .unwrap()
+                };
+
+                log::info!(
+                    "[aeroponic_spray] <CTRL> set -> OFF (next spray time: {})",
+                    next_spray_local_time
+                )
             }
             return;
         }
 
         if this.next_spray_time <= now && maybe_end_time.is_none() {
-            this.set_state(true);
-            *maybe_end_time = Some(now + config.spray_duration);
+            let end_time = now + config.spray_duration;
+
+            this.update_state(true);
+            *maybe_end_time = Some(end_time);
+
+            log::info!(
+                "[aeroponic_spray] <CTRL> set -> ON (spray until: {})",
+                end_time
+                    .to_offset(*crate::timezone_offset())
+                    .format(&crate::time_log_fmt())
+                    .unwrap()
+            );
         }
     }
 }
@@ -111,7 +134,7 @@ impl state_file::SaveState for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::Status;
+    type Status = action::AeroponicSprayerStatus;
 
     fn get_status(&self) -> Self::Status {
         let next_spray_time = if !self.sprayer_state {
@@ -131,14 +154,14 @@ impl mqtt::add_on::action_message::PublishStatus for Manager {
 }
 
 pub mod action {
-    use crate::{constants, AtomicFixedString, plugins::mqtt};
+    use crate::{constants, plugins::mqtt, AtomicFixedString};
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct Status {
+    pub struct AeroponicSprayerStatus {
         pub sprayer_state: bool,
         pub next_spray_time: AtomicFixedString,
     }
-    impl mqtt::add_on::action_message::MessageImpl for Status {
+    impl mqtt::add_on::action_message::MessageImpl for AeroponicSprayerStatus {
         type Type = mqtt::add_on::action_message::action_type::Status;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = "aeroponics";

@@ -5,11 +5,11 @@ use bevy_ecs::{
     system::{Res, ResMut, Resource},
     world::World,
 };
-use bevy_internal::prelude::DetectChanges;
+use bevy_internal::{prelude::DetectChanges, utils::hashbrown::HashMap};
 use bevy_tokio_tasks::TokioTasksRuntime;
 use tokio::io::AsyncWriteExt;
 
-use crate::log;
+use crate::{log, AtomicFixedString};
 
 pub trait SaveState
 where
@@ -60,9 +60,25 @@ where
             state
         };
 
+        let state_info: HashMap<AtomicFixedString, serde_json::Value> =
+            serde_json::from_slice(&state).unwrap();
+
+        let state_info: HashMap<AtomicFixedString, AtomicFixedString> = state_info
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string().into()))
+            .collect();
+
         if let Ok(state) = serde_json::from_slice(&state) {
+            log::info!(
+                "[state_file] state loaded from '{}.json': {:?} ",
+                T::FILENAME,
+                state_info
+            );
+
             world.remove_resource::<T>();
             world.insert_resource(T::build(state))
+        } else {
+            log::debug!("[state_file] empty state file");
         };
     }
 
@@ -73,19 +89,14 @@ where
         maybe_used: Option<Res<UseStateFile>>,
     ) {
         if maybe_used.is_none() {
-            log::debug!("state_file plugin disabled!");
+            log::debug!("[state_file] plugin disabled!");
             return;
         }
 
         if let Some(this) = maybe_this {
             if this.is_changed() && !this.is_added() {
-                let data = {
-                    let mut data =
-                        serde_json::to_string_pretty(&serde_json::to_value(this.save()).unwrap())
-                            .unwrap();
-                    data.push('\n');
-                    data
-                };
+                let data =
+                    serde_json::to_string(&serde_json::to_value(this.save()).unwrap()).unwrap();
 
                 let file_path = state_file_path(&state_dir, T::FILENAME);
 
@@ -98,13 +109,15 @@ where
                     {
                         Ok(mut file) => {
                             if let Err(e) = file.write_all(data.as_bytes()).await {
-                                log::warn!("failed to write state to file, reason: {e}");
+                                log::warn!(
+                                    "[state_file] failed to write state to file, reason: {e}"
+                                );
                             } else {
-                                log::info!("state file '{}' updated:\n{data}", T::FILENAME)
+                                log::debug!("[state_file] '{}.json' updated -> {data}", T::FILENAME)
                             }
                         }
                         Err(e) => {
-                            log::warn!("failed to open state file, reason: {e}")
+                            log::warn!("[state_file] failed to open state file, reason: {e}")
                         }
                     }
                 });
