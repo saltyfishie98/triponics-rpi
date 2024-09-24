@@ -30,7 +30,7 @@ pub struct GrowlightManager {
     gpio: rppal::gpio::OutputPin,
 }
 impl GrowlightManager {
-    fn init() -> Result<Self> {
+    fn init() -> ResultStack<Self> {
         let mut gpio = rppal::gpio::Gpio::new()
             .map_err(|e| {
                 error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
@@ -46,7 +46,7 @@ impl GrowlightManager {
         Ok(Self { gpio })
     }
 
-    pub fn update_state(&mut self, request: action::Update) -> Result<()> {
+    pub fn update_state(&mut self, request: action::Update) -> ResultStack<()> {
         let state = match request.state {
             true => helper::relay::State::Close,
             false => helper::relay::State::Open,
@@ -115,7 +115,7 @@ pub mod action {
     const GROUP: &str = "growlight";
     const QOS: mqtt::Qos = mqtt::Qos::_1;
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
     pub struct Update {
         pub state: bool,
     }
@@ -156,4 +156,4 @@ pub enum Error {
     Setup,
 }
 
-type Result<T> = error_stack::Result<T, Error>;
+type ResultStack<T> = error_stack::Result<T, Error>;

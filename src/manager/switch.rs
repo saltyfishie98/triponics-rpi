@@ -68,7 +68,7 @@ impl SwitchManager {
             }
         }
 
-        log::debug!("switch manager update state: \n{:#?}", request);
+        log::trace!("switch manager update state: \n{:#?}", request);
         update(&mut self.gpio_switch_1, request.switch_1, false);
         update(&mut self.gpio_switch_2, request.switch_2, false);
         update(&mut self.gpio_switch_3, request.switch_3, true);
@@ -128,7 +128,7 @@ pub mod action {
             Self {
                 switch_1: Some(false),
                 switch_2: Some(false),
-                switch_3: Some(false),
+                switch_3: Some(true),
             }
         }
     }

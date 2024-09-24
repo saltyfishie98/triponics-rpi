@@ -69,7 +69,13 @@ where
         maybe_this: Option<Res<T>>,
         rt: ResMut<TokioTasksRuntime>,
         state_dir: Res<StateDir>,
+        maybe_used: Option<Res<UseStateFile>>,
     ) {
+        if maybe_used.is_none() {
+            log::debug!("state_file plugin disabled!");
+            return;
+        }
+
         if let Some(this) = maybe_this {
             if this.is_changed() && !this.is_added() {
                 let data = {
@@ -110,13 +116,23 @@ where
     T: SaveState,
 {
     fn build(&self, app: &mut bevy_app::App) {
-        app.add_systems(PreStartup, (StateFile::<T>::init,))
-            .add_systems(Update, (StateFile::<T>::watcher,));
+        if app.world().get_resource::<UseStateFile>().is_some() {
+            app.add_systems(PreStartup, (StateFile::<T>::init,))
+                .add_systems(Update, (StateFile::<T>::watcher,));
+        }
     }
 }
 
+#[derive(Resource, Default)]
+struct UseStateFile;
+
 pub struct Plugin {
     dirname: &'static str,
+}
+impl Plugin {
+    pub fn disable(world: &mut World) {
+        world.remove_resource::<UseStateFile>();
+    }
 }
 impl Default for Plugin {
     fn default() -> Self {
@@ -129,7 +145,8 @@ impl bevy_app::Plugin for Plugin {
         path.push(self.dirname);
 
         std::fs::create_dir_all(&path).unwrap();
-        app.insert_resource(StateDir(path));
+        app.init_resource::<UseStateFile>()
+            .insert_resource(StateDir(path));
     }
 }
 

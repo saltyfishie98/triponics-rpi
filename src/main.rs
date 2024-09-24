@@ -54,12 +54,14 @@ fn main() -> anyhow::Result<()> {
                 client_create_options,
                 client_connect_options,
             },
+            manager::state_file::Plugin::default(),
+        ))
+        .add_plugins((
             manager::switch::Plugin,
             manager::growlight::Plugin,
             manager::aeroponic_spray::Plugin {
                 config: Default::default(),
             },
-            manager::state_file::Plugin::default(),
         ))
         .add_systems(
             Startup,
@@ -92,13 +94,42 @@ fn timezone_offset() -> &'static time::UtcOffset {
 }
 
 mod local {
+    use helper::ErrorLogFormat;
+
     use super::*;
 
     pub fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         rt.spawn_background_task(|mut ctx| async move {
             let _ = tokio::signal::ctrl_c().await;
             ctx.run_on_main_thread(move |ctx| {
-                ctx.world.send_event(AppExit::Success);
+                let world = ctx.world;
+
+                manager::state_file::Plugin::disable(world);
+
+                if let Some(mut switch_manager) =
+                    world.remove_resource::<manager::switch::SwitchManager>()
+                {
+                    if let Err(e) =
+                        switch_manager.update_state(manager::switch::action::Update::default())
+                    {
+                        log::error!("failed to reset switch states, reason:\n{}", e.fmt_error());
+                    }
+                }
+
+                if let Some(mut growlight_manager) =
+                    world.remove_resource::<manager::growlight::GrowlightManager>()
+                {
+                    if let Err(e) = growlight_manager
+                        .update_state(manager::growlight::action::Update::default())
+                    {
+                        log::error!(
+                            "failed to reset growlight states, reason:\n{}",
+                            e.fmt_error()
+                        );
+                    }
+                }
+
+                world.send_event(AppExit::Success);
             })
             .await;
         });
