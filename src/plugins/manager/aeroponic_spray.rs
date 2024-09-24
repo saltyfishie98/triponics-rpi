@@ -87,7 +87,7 @@ impl Manager {
                 };
 
                 log::info!(
-                    "[aeroponic_spray] <CTRL> set -> OFF (next spray time: {})",
+                    "[aeroponic_spray] <APP> set -> OFF (next spray time: {})",
                     next_spray_local_time
                 )
             }
@@ -101,7 +101,7 @@ impl Manager {
             *maybe_end_time = Some(end_time);
 
             log::info!(
-                "[aeroponic_spray] <CTRL> set -> ON (spray until: {})",
+                "[aeroponic_spray] <APP> set -> ON (spray until: {})",
                 end_time
                     .to_offset(*crate::timezone_offset())
                     .format(&crate::time_log_fmt())
@@ -114,7 +114,7 @@ impl Default for Manager {
     fn default() -> Self {
         Self {
             sprayer_state: Default::default(),
-            next_spray_time: time::OffsetDateTime::now_utc(),
+            next_spray_time: time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()),
         }
     }
 }
@@ -130,6 +130,7 @@ impl state_file::SaveState for Manager {
     fn save<'de>(&self) -> Self::State<'de> {
         let mut state = self.clone();
         state.sprayer_state = false;
+        state.next_spray_time.to_offset(*crate::timezone_offset());
         state
     }
 }

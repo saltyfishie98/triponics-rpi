@@ -82,7 +82,7 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Response = action::MqttResponse;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
-        log::info!("[growlight] <ACT_MSG> set -> {}", request);
+        log::info!("[growlight] <USER> set -> {}", request);
 
         Some(action::MqttResponse(
             state

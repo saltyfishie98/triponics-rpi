@@ -60,13 +60,16 @@ where
             state
         };
 
-        let state_info: HashMap<AtomicFixedString, serde_json::Value> =
-            serde_json::from_slice(&state).unwrap();
-
-        let state_info: HashMap<AtomicFixedString, AtomicFixedString> = state_info
-            .into_iter()
-            .map(|(k, v)| (k, v.to_string().into()))
-            .collect();
+        let state_info = if let Ok(state_info) =
+            serde_json::from_slice::<HashMap<AtomicFixedString, serde_json::Value>>(&state)
+        {
+            state_info
+                .into_iter()
+                .map(|(k, v)| (k, v.to_string().into()))
+                .collect::<HashMap<AtomicFixedString, AtomicFixedString>>()
+        } else {
+            HashMap::new()
+        };
 
         if let Ok(state) = serde_json::from_slice(&state) {
             log::info!(
@@ -78,7 +81,7 @@ where
             world.remove_resource::<T>();
             world.insert_resource(T::build(state))
         } else {
-            log::debug!("[state_file] empty state file");
+            log::debug!("[state_file] empty state file: {}.json", T::FILENAME);
         };
     }
 
