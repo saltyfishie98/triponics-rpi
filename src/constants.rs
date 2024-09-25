@@ -11,6 +11,6 @@ pub mod gpio {
     pub const SWITCH_3: u8 = 24;
 
     pub const GROWLIGHT: u8 = 27;
-    pub const MOTOR_PH_UP: u8 = 26;
-    pub const MOTOR_PH_DOWN: u8 = 27;
+    pub const MOTOR_PH_DOWN: u8 = 26;
+    pub const MOTOR_PH_UP: u8 = 27;
 }
