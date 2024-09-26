@@ -46,12 +46,6 @@ fn channel_to_event<T: 'static + Send + Sync + Event>(
 pub mod time {
     use serde::Deserialize;
 
-    fn time_fmt() -> impl time::formatting::Formattable + time::parsing::Parsable {
-        time::macros::format_description!(
-            "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
-        )
-    }
-
     pub fn serialize_offset_datetime_as_local<S>(
         offset_datetime: &time::OffsetDateTime,
         serializer: S,
@@ -61,7 +55,7 @@ pub mod time {
     {
         let out = (*offset_datetime)
             .to_offset(*crate::timezone_offset())
-            .format(&time_fmt())
+            .format(&crate::time_log_fmt())
             .unwrap();
 
         serializer.serialize_str(&out)
@@ -75,7 +69,7 @@ pub mod time {
     {
         let data = String::deserialize(deserializer)?;
         println!("{data}");
-        Ok(time::OffsetDateTime::parse(&data, &time_fmt()).unwrap())
+        Ok(time::OffsetDateTime::parse(&data, &crate::time_log_fmt()).unwrap())
     }
 }
 

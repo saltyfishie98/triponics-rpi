@@ -17,7 +17,5 @@ pub fn timezone_offset() -> &'static time::UtcOffset {
 }
 
 pub fn time_log_fmt() -> impl time::formatting::Formattable + time::parsing::Parsable {
-    time::macros::format_description!(
-        "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second]"
-    )
+    time::format_description::well_known::Rfc2822
 }
