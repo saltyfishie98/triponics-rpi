@@ -43,6 +43,42 @@ fn channel_to_event<T: 'static + Send + Sync + Event>(
     writer.send_batch(events.try_iter());
 }
 
+pub mod time {
+    use serde::Deserialize;
+
+    fn time_fmt() -> impl time::formatting::Formattable + time::parsing::Parsable {
+        time::macros::format_description!(
+            "[year]-[month padding:zero]-[day padding:zero] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
+        )
+    }
+
+    pub fn serialize_offset_datetime_as_local<S>(
+        offset_datetime: &time::OffsetDateTime,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let out = (*offset_datetime)
+            .to_offset(*crate::timezone_offset())
+            .format(&time_fmt())
+            .unwrap();
+
+        serializer.serialize_str(&out)
+    }
+
+    pub fn deserialize_offset_datetime_as_local<'de, D>(
+        deserializer: D,
+    ) -> Result<time::OffsetDateTime, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = String::deserialize(deserializer)?;
+        println!("{data}");
+        Ok(time::OffsetDateTime::parse(&data, &time_fmt()).unwrap())
+    }
+}
+
 pub trait ErrorLogFormat {
     fn fmt_error(&self) -> AtomicFixedString;
 }

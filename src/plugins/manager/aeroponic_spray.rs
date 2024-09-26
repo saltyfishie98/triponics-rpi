@@ -48,6 +48,10 @@ impl Default for Config {
 #[derive(Debug, Resource, serde::Serialize, serde::Deserialize, Clone)]
 pub struct Manager {
     sprayer_state: bool,
+    #[serde(
+        serialize_with = "crate::helper::time::serialize_offset_datetime_as_local",
+        deserialize_with = "crate::helper::time::deserialize_offset_datetime_as_local"
+    )]
     next_spray_time: time::OffsetDateTime,
 }
 impl Manager {
