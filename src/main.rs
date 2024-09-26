@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
         .add_systems(Startup, (local::exit_task,))
         .run();
 
-    log::info!("bye!\n");
+    log::info!("bye!");
 
     Ok(())
 }
@@ -81,9 +81,6 @@ mod local {
     }
 
     pub fn init_logging(to_stdout: bool) {
-        let mut data_path = crate::data_directory().to_path_buf();
-        data_path.push("app.log");
-
         let expected = "Failed to set subscriber";
         let subscriber = Registry::default().with(
             #[cfg(debug_assertions)]
@@ -114,6 +111,8 @@ mod local {
 
         #[cfg(not(debug_assertions))]
         {
+            use std::io::Write;
+
             let layer = fmt::Layer::default()
                 .with_file(true)
                 .with_target(false)
@@ -126,12 +125,18 @@ mod local {
                 ));
 
             if !to_stdout {
-                let file = std::fs::OpenOptions::new()
+                let mut data_path = crate::data_directory().to_path_buf();
+                data_path.push("app.log");
+                let log_path = data_path;
+
+                let mut file = std::fs::OpenOptions::new()
                     .append(true)
                     .create(true)
-                    .open(data_path)
+                    .open(log_path)
                     .unwrap();
 
+                file.write_all(b"\n=================================================\n\n")
+                    .unwrap();
                 let layer = layer.with_writer(file).with_ansi(false);
 
                 tracing::subscriber::set_global_default(subscriber.with(layer)).expect(expected);
@@ -143,7 +148,17 @@ mod local {
 
     pub fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         rt.spawn_background_task(|mut ctx| async move {
-            let _ = tokio::signal::ctrl_c().await;
+            let mut sigint =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
+            tokio::select! {
+                _ = sigint.recv() => {}
+                _ = sigterm.recv() => {}
+            }
+
             ctx.run_on_main_thread(move |ctx| {
                 let world = ctx.world;
 
