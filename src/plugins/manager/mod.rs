@@ -5,5 +5,5 @@ pub use aeroponic_spray::Manager as AeroponicSprayManager;
 pub mod growlight;
 pub use growlight::Manager as GrowlightManager;
 
-pub mod switch;
-pub use switch::Manager as SwitchManager;
+pub mod relay_module;
+pub use relay_module::Manager as RelayManager;

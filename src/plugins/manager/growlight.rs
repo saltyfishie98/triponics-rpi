@@ -1,115 +1,105 @@
-use bevy_ecs::system::Resource;
-use bevy_internal::time::common_conditions::on_timer;
+use bevy_app::Update;
+use bevy_ecs::system::{Res, ResMut, Resource};
+use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use crate::{
-    constants,
-    helper::{self, ErrorLogFormat},
-    log,
-    plugins::{
-        mqtt::{self, add_on::action_message::PublishStatus},
-        state_file,
-    },
+    constants, log,
+    plugins::{manager, mqtt, state_file},
 };
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<Manager>().add_plugins((
-            state_file::StateFile::<Manager>::new(),
-            mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
-            mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(on_timer(
-                std::time::Duration::from_secs(1),
-            )),
-        ));
+        app.init_resource::<manager::RelayManager>()
+            .init_resource::<Manager>()
+            .add_plugins((
+                state_file::StateFile::<Manager>::new(),
+                mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
+                mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(
+                    on_timer(std::time::Duration::from_secs(1)),
+                ),
+            ))
+            .add_systems(Update, Manager::update);
     }
 }
 
-#[derive(Debug, Resource)]
+#[derive(Debug, Resource, Default, serde::Serialize, serde::Deserialize, Clone, Copy)]
 pub struct Manager {
-    gpio: rppal::gpio::OutputPin,
+    state: bool,
 }
 impl Manager {
-    fn init() -> ResultStack<Self> {
-        let mut gpio = rppal::gpio::Gpio::new()
-            .map_err(|e| {
-                error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
-            })?
-            .get(constants::gpio::GROWLIGHT)
-            .map_err(|e| {
-                error_stack::report!(Error::Setup).attach_printable(format!("reason: '{e}'"))
-            })?
-            .into_output();
-
-        helper::relay::set_state(&mut gpio, helper::relay::State::Open);
-
-        Ok(Self { gpio })
+    pub fn turn_on(&mut self) {
+        self.state = true;
     }
 
-    pub fn update_state(&mut self, request: action::Update) -> ResultStack<()> {
-        let state = match request.state {
-            true => helper::relay::State::Close,
-            false => helper::relay::State::Open,
-        };
-
-        helper::relay::set_state(&mut self.gpio, state);
-        log::trace!("[growlight] state updated -> {:?}", request);
-        Ok(())
+    pub fn turn_off(&mut self) {
+        self.state = false;
     }
-}
-impl Default for Manager {
-    fn default() -> Self {
-        Self::init().unwrap()
+
+    fn update(this: Res<Manager>, mut relay_manager: ResMut<manager::RelayManager>) {
+        if this.is_changed() {
+            if let Err(e) = relay_manager.update_state(
+                manager::relay_module::action::Update {
+                    growlight: Some(this.state),
+                    ..Default::default()
+                }, //
+            ) {
+                log::warn!("[growlight] failed to update relay manager, reason:\n{e:#?}\n");
+            }
+        }
     }
 }
 impl state_file::SaveState for Manager {
     const FILENAME: &str = "growlight_manager";
-    type State<'de> = action::Update;
+    type State<'de> = Self;
 
     fn build(state: Self::State<'_>) -> Self {
-        let mut this = Self::init().unwrap();
-        this.update_state(state).unwrap();
-        Self { gpio: this.gpio }
+        state
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
-        Self::State {
-            state: self.get_status().state,
-        }
+        *self
     }
 }
 impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Request = action::Update;
     type Response = action::MqttResponse;
 
-    fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+    fn update_state(request: Self::Request, this: &mut Self) -> Option<Self::Response> {
         log::info!("[growlight] <USER> set -> {}", request);
 
-        Some(action::MqttResponse(
-            state
-                .update_state(request)
-                .map(|_| "stated updated!".into())
-                .map_err(|e| {
-                    log::warn!("\n{}", e.fmt_error());
-                    "unknowned error!".into()
-                }),
-        ))
+        match request.state {
+            true => {
+                this.turn_on();
+                Some(Ok("growlight turned on").into())
+            }
+            false => {
+                this.turn_off();
+                Some(Ok("growlight turned off").into())
+            }
+        }
     }
 }
+impl mqtt::add_on::action_message::MessageImpl for Manager {
+    type Type = mqtt::add_on::action_message::action_type::Status;
+    const PROJECT: &'static str = constants::project::NAME;
+    const GROUP: &'static str = action::GROUP;
+    const DEVICE: &'static str = constants::project::DEVICE;
+    const QOS: mqtt::Qos = action::QOS;
+}
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::MqttStatus;
+    type Status = Self;
 
     fn get_status(&self) -> Self::Status {
-        Self::Status {
-            state: helper::relay::get_state(&self.gpio),
-        }
+        *self
     }
 }
 
 pub mod action {
     use crate::{constants, plugins::mqtt, AtomicFixedString};
 
-    const GROUP: &str = "growlight";
-    const QOS: mqtt::Qos = mqtt::Qos::_1;
+    pub(super) const GROUP: &str = "growlight";
+    pub(super) const QOS: mqtt::Qos = mqtt::Qos::_1;
 
     #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
     pub struct Update {
@@ -133,18 +123,6 @@ pub mod action {
     }
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct MqttStatus {
-        pub state: bool,
-    }
-    impl mqtt::add_on::action_message::MessageImpl for MqttStatus {
-        type Type = mqtt::add_on::action_message::action_type::Status;
-        const PROJECT: &'static str = constants::project::NAME;
-        const GROUP: &'static str = GROUP;
-        const DEVICE: &'static str = constants::project::DEVICE;
-        const QOS: mqtt::Qos = QOS;
-    }
-
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct MqttResponse(pub Result<AtomicFixedString, AtomicFixedString>);
     impl mqtt::add_on::action_message::MessageImpl for MqttResponse {
         type Type = mqtt::add_on::action_message::action_type::Response;
@@ -153,12 +131,9 @@ pub mod action {
         const DEVICE: &'static str = constants::project::DEVICE;
         const QOS: mqtt::Qos = QOS;
     }
+    impl From<Result<&'static str, &'static str>> for MqttResponse {
+        fn from(value: Result<&'static str, &'static str>) -> Self {
+            Self(value.map(|o| o.into()).map_err(|e| e.into()))
+        }
+    }
 }
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("error setting up growlight manager")]
-    Setup,
-}
-
-type ResultStack<T> = error_stack::Result<T, Error>;

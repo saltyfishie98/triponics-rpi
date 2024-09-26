@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
             },
         ))
         .add_plugins((
-            plugins::manager::switch::Plugin,
+            plugins::manager::relay_module::Plugin,
             plugins::manager::growlight::Plugin,
             plugins::manager::aeroponic_spray::Plugin {
                 config: Default::default(),
@@ -150,10 +150,10 @@ mod local {
                 plugins::state_file::Plugin::disable(world);
 
                 if let Some(mut switch_manager) =
-                    world.remove_resource::<plugins::manager::SwitchManager>()
+                    world.remove_resource::<plugins::manager::RelayManager>()
                 {
                     if let Err(e) = switch_manager
-                        .update_state(plugins::manager::switch::action::Update::default())
+                        .update_state(plugins::manager::relay_module::action::Update::default())
                     {
                         log::error!("failed to reset switch states, reason:\n{}", e.fmt_error());
                     }
@@ -162,14 +162,7 @@ mod local {
                 if let Some(mut growlight_manager) =
                     world.remove_resource::<plugins::manager::GrowlightManager>()
                 {
-                    if let Err(e) = growlight_manager
-                        .update_state(plugins::manager::growlight::action::Update::default())
-                    {
-                        log::error!(
-                            "failed to reset growlight states, reason:\n{}",
-                            e.fmt_error()
-                        );
-                    }
+                    growlight_manager.turn_off();
                 }
 
                 world.send_event(AppExit::Success);

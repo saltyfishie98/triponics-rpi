@@ -51,21 +51,3 @@ impl<E: std::error::Error> ErrorLogFormat for error_stack::Report<E> {
         format!("\n{self:?}\n").into()
     }
 }
-
-pub mod relay {
-    pub enum State {
-        Open,
-        Close,
-    }
-
-    pub fn get_state(pin: &rppal::gpio::OutputPin) -> bool {
-        pin.is_set_low()
-    }
-
-    pub fn set_state(pin: &mut rppal::gpio::OutputPin, new_state: State) {
-        match new_state {
-            State::Open => pin.set_high(),
-            State::Close => pin.set_low(),
-        }
-    }
-}

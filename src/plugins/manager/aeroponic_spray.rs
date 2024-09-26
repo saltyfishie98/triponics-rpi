@@ -2,11 +2,12 @@ use bevy_app::Update;
 use bevy_ecs::system::{Local, Res, ResMut, Resource};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
-use super::switch;
+use super::relay_module;
 use crate::{
     helper::ErrorLogFormat,
     log,
     plugins::{
+        manager,
         mqtt::{self, add_on::action_message::StatusMessage},
         state_file,
     },
@@ -17,7 +18,8 @@ pub struct Plugin {
 }
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<Manager>()
+        app.init_resource::<manager::RelayManager>()
+            .init_resource::<Manager>()
             .insert_resource(self.config.clone())
             .add_plugins((
                 StatusMessage::<Manager>::publish_condition(on_timer(
@@ -54,14 +56,18 @@ impl Manager {
         log::trace!("[aeroponic_spray] state updated -> {:?}", new_state);
     }
 
-    fn update_switch(mut switch_manager: ResMut<switch::Manager>, this: Res<Self>) {
+    fn update_switch(mut relay_manager: ResMut<relay_module::Manager>, this: Res<Self>) {
         if this.is_changed() {
-            if let Err(e) = switch_manager.update_state(switch::action::Update {
-                switch_1: None,
-                switch_2: Some(this.sprayer_state),
-                switch_3: None,
-            }) {
-                log::warn!("\n{}", e.fmt_error())
+            if let Err(e) = relay_manager.update_state(
+                relay_module::action::Update {
+                    switch_2: Some(this.sprayer_state),
+                    ..Default::default()
+                }, //
+            ) {
+                log::warn!(
+                    "[aeroponic_spray] failed to update relay manager, reason:\n{}",
+                    e.fmt_error()
+                )
             }
         }
     }
