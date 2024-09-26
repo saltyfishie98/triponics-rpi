@@ -45,7 +45,7 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Resource, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, Resource, serde::Serialize, serde::Deserialize)]
 pub struct Manager {
     sprayer_state: bool,
     #[serde(
@@ -138,10 +138,10 @@ impl state_file::SaveState for Manager {
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
-        let mut state = self.clone();
-        state.sprayer_state = false;
-        state.next_spray_time.to_offset(*crate::timezone_offset());
-        state
+        Self {
+            sprayer_state: self.sprayer_state,
+            next_spray_time: self.next_spray_time,
+        }
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
