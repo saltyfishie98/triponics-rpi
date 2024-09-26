@@ -169,7 +169,7 @@ pub mod action {
         pub next_spray_time: AtomicFixedString,
     }
     impl mqtt::add_on::action_message::MessageImpl for AeroponicSprayerStatus {
-        type Type = mqtt::add_on::action_message::action_type::Status;
+        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = "aeroponics";
         const DEVICE: &'static str = constants::project::DEVICE;

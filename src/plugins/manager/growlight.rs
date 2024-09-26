@@ -49,17 +49,12 @@ impl Manager {
         }
     }
 }
-impl state_file::SaveState for Manager {
-    const FILENAME: &str = "growlight_manager";
-    type State<'de> = Self;
-
-    fn build(state: Self::State<'_>) -> Self {
-        state
-    }
-
-    fn save<'de>(&self) -> Self::State<'de> {
-        *self
-    }
+impl mqtt::add_on::action_message::MessageImpl for Manager {
+    const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+    const PROJECT: &'static str = constants::project::NAME;
+    const GROUP: &'static str = action::GROUP;
+    const DEVICE: &'static str = constants::project::DEVICE;
+    const QOS: mqtt::Qos = action::QOS;
 }
 impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Request = action::Update;
@@ -80,17 +75,22 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
         }
     }
 }
-impl mqtt::add_on::action_message::MessageImpl for Manager {
-    type Type = mqtt::add_on::action_message::action_type::Status;
-    const PROJECT: &'static str = constants::project::NAME;
-    const GROUP: &'static str = action::GROUP;
-    const DEVICE: &'static str = constants::project::DEVICE;
-    const QOS: mqtt::Qos = action::QOS;
-}
 impl mqtt::add_on::action_message::PublishStatus for Manager {
     type Status = Self;
 
     fn get_status(&self) -> Self::Status {
+        *self
+    }
+}
+impl state_file::SaveState for Manager {
+    const FILENAME: &str = "growlight_manager";
+    type State<'de> = Self;
+
+    fn build(state: Self::State<'_>) -> Self {
+        state
+    }
+
+    fn save<'de>(&self) -> Self::State<'de> {
         *self
     }
 }
@@ -115,7 +115,7 @@ pub mod action {
         }
     }
     impl mqtt::add_on::action_message::MessageImpl for Update {
-        type Type = mqtt::add_on::action_message::action_type::Request;
+        const PREFIX: &'static str = constants::mqtt_prefix::REQUEST;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
         const DEVICE: &'static str = constants::project::DEVICE;
@@ -125,7 +125,7 @@ pub mod action {
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct MqttResponse(pub Result<AtomicFixedString, AtomicFixedString>);
     impl mqtt::add_on::action_message::MessageImpl for MqttResponse {
-        type Type = mqtt::add_on::action_message::action_type::Response;
+        const PREFIX: &'static str = constants::mqtt_prefix::RESPONSE;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
         const DEVICE: &'static str = constants::project::DEVICE;

@@ -22,43 +22,22 @@ pub trait MessageImpl
 where
     Self: MessageInfo,
 {
-    type Type: ActionType; // needed for MqttMessage blanket impl
+    const PREFIX: &'static str;
     const PROJECT: &'static str;
     const GROUP: &'static str;
     const DEVICE: &'static str;
     const QOS: Qos;
 }
-impl<T: MessageImpl> MessageInfo for T {
+impl<M> MessageInfo for M
+where
+    M: MessageImpl,
+{
     fn topic() -> AtomicFixedString {
-        format!(
-            "{}/{}/{}/{}",
-            T::Type::PREFIX,
-            T::PROJECT,
-            T::GROUP,
-            T::DEVICE
-        )
-        .into()
+        format!("{}/{}/{}/{}", M::PREFIX, M::PROJECT, M::GROUP, M::DEVICE).into()
     }
 
     fn qos() -> Qos {
-        T::QOS
-    }
-}
-
-pub mod action_type {
-    pub struct Status;
-    impl super::ActionType for Status {
-        const PREFIX: &str = "data";
-    }
-
-    pub struct Request;
-    impl super::ActionType for Request {
-        const PREFIX: &str = "request";
-    }
-
-    pub struct Response;
-    impl super::ActionType for Response {
-        const PREFIX: &str = "response";
+        M::QOS
     }
 }
 
@@ -66,7 +45,7 @@ pub trait PublishStatus
 where
     Self: Resource + Sized + Send + Sync + 'static,
 {
-    type Status: MessageImpl<Type = action_type::Status>;
+    type Status: MessageImpl;
     fn get_status(&self) -> Self::Status;
 }
 
@@ -74,8 +53,8 @@ pub trait RequestHandler
 where
     Self: Resource + Sized + Send + Sync + 'static,
 {
-    type Request: MessageImpl<Type = action_type::Request>;
-    type Response: MessageImpl<Type = action_type::Response>;
+    type Request: MessageImpl;
+    type Response: MessageImpl;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
         let _ = request;
@@ -188,8 +167,4 @@ mod local {
 
     #[derive(Debug, Event)]
     pub struct StatusUpdate<T: PublishStatus>(T::Status);
-}
-
-pub trait ActionType {
-    const PREFIX: &str;
 }
