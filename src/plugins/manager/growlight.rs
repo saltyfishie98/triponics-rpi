@@ -23,7 +23,7 @@ impl bevy_app::Plugin for Plugin {
     }
 }
 
-#[derive(Debug, Resource, Default, serde::Serialize, serde::Deserialize, Clone, Copy)]
+#[derive(Debug, Resource, Default, serde::Serialize, serde::Deserialize)]
 pub struct Manager {
     state: bool,
 }
@@ -79,7 +79,7 @@ impl mqtt::add_on::action_message::PublishStatus for Manager {
     type Status = Self;
 
     fn get_status(&self) -> Self::Status {
-        *self
+        Self { state: self.state }
     }
 }
 impl state_file::SaveState for Manager {
@@ -91,7 +91,7 @@ impl state_file::SaveState for Manager {
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
-        *self
+        Self { state: self.state }
     }
 }
 

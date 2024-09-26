@@ -457,7 +457,7 @@ pub mod message {
 
     pub trait MessageInfo
     where
-        Self: serde::Serialize + DeserializeOwned + Clone + core::fmt::Debug,
+        Self: serde::Serialize + DeserializeOwned + core::fmt::Debug,
     {
         fn topic() -> AtomicFixedString;
         fn qos() -> Qos;
