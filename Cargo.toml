@@ -44,3 +44,7 @@ rand = "0.8.5"
 rppal = "0.19.0"
 serialport = "4.5.1"
 clap = { version = "4.5.18", features = ["derive"] }
+uom = "0.36.0"
+async-std = "1.13.0"
+tokio-modbus = "0.14.0"
+tokio-serial = "5.4.4"

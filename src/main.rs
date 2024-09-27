@@ -1,7 +1,9 @@
 mod config;
 mod constants;
 mod helper;
+
 mod plugins;
+use plugins::*;
 
 mod newtype;
 use newtype::*;
@@ -43,16 +45,17 @@ fn main() -> anyhow::Result<()> {
             TokioTasksPlugin::default(),
         ))
         .add_plugins((
-            plugins::state_file::Plugin::default(),
-            plugins::mqtt::Plugin {
+            state_file::Plugin::default(),
+            mqtt::Plugin {
                 client_create_options,
                 client_connect_options,
             },
         ))
         .add_plugins((
-            plugins::manager::relay_module::Plugin,
-            plugins::manager::growlight::Plugin,
-            plugins::manager::aeroponic_spray::Plugin {
+            manager::relay_module::Plugin,
+            manager::growlight::Plugin,
+            manager::ph_dosing::Plugin,
+            manager::aeroponic_spray::Plugin {
                 config: Default::default(),
             },
         ))

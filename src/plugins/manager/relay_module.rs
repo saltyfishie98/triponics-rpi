@@ -20,19 +20,19 @@ mod gpio {
     pub const SWITCH_1: u8 = 22;
     pub const SWITCH_2: u8 = 23;
     pub const SWITCH_3: u8 = 24;
-    pub const PH_UP_PUMP: u8 = 25;
-    pub const PH_DOWN_PUMP: u8 = 26;
+    pub const PH_DOWN_PUMP: u8 = 25;
+    pub const PH_UP_PUMP: u8 = 26;
     pub const GROWLIGHT: u8 = 27;
 }
 
 #[derive(Debug, Resource)]
 pub struct Manager {
-    gpio_switch_1: relay::NO<rppal::gpio::OutputPin>,
-    gpio_switch_2: relay::NO<rppal::gpio::OutputPin>,
-    gpio_switch_3: relay::NC<rppal::gpio::OutputPin>,
-    gpio_ph_down: relay::NO<rppal::gpio::OutputPin>,
-    gpio_ph_up: relay::NO<rppal::gpio::OutputPin>,
-    gpio_growlight: relay::NO<rppal::gpio::OutputPin>,
+    relay_1: relay::NO<rppal::gpio::OutputPin>,
+    relay_2: relay::NO<rppal::gpio::OutputPin>,
+    relay_3: relay::NC<rppal::gpio::OutputPin>,
+    relay_6: relay::NO<rppal::gpio::OutputPin>,
+    relay_7: relay::NO<rppal::gpio::OutputPin>,
+    relay_8: relay::NO<rppal::gpio::OutputPin>,
 }
 impl Default for Manager {
     fn default() -> Self {
@@ -50,36 +50,36 @@ impl Default for Manager {
             .unwrap();
 
         Self {
-            gpio_switch_1: setup_gpio(&gpio, gpio::SWITCH_1)
+            relay_1: setup_gpio(&gpio, gpio::SWITCH_1)
                 .map_err(|e| {
                     log::error!("[relay_module] failed to setup gpio pin for switch 1 relay, reason: {e}")
                 })
                 .unwrap(),
-            gpio_switch_2: setup_gpio(&gpio, gpio::SWITCH_2)
+            relay_2: setup_gpio(&gpio, gpio::SWITCH_2)
                 .map_err(|e| {
                     log::error!("[relay_module] failed to setup gpio pin for switch 2 relay, reason: {e}")
                 })
                 .unwrap(),
-            gpio_switch_3: setup_gpio(&gpio, gpio::SWITCH_3)
+            relay_3: setup_gpio(&gpio, gpio::SWITCH_3)
                 .map_err(|e| {
                     log::error!("[relay_module] failed to setup gpio pin for switch 3 relay, reason: {e}")
                 })
                 .unwrap(),
-            gpio_ph_down: setup_gpio(&gpio, gpio::PH_DOWN_PUMP)
+            relay_6: setup_gpio(&gpio, gpio::PH_DOWN_PUMP)
                 .map_err(|e| {
                     log::error!(
                         "[relay_module] failed to setup gpio pin for pH down pump relay, reason: {e}"
                     )
                 })
                 .unwrap(),
-            gpio_ph_up: setup_gpio(&gpio, gpio::PH_UP_PUMP)
+            relay_7: setup_gpio(&gpio, gpio::PH_UP_PUMP)
                 .map_err(|e| {
                     log::error!(
                         "[relay_module] failed to setup gpio pin for pH up pump relay, reason: {e}"
                     )
                 })
                 .unwrap(),
-            gpio_growlight: setup_gpio(&gpio, gpio::GROWLIGHT)
+            relay_8: setup_gpio(&gpio, gpio::GROWLIGHT)
                 .map_err(|e| {
                     log::error!("[relay_module] failed to setup gpio pin for growlight relay, reason: {e}")
                 })
@@ -95,12 +95,12 @@ impl Manager {
             }
         }
 
-        update(&mut self.gpio_switch_1, request.switch_1);
-        update(&mut self.gpio_switch_2, request.switch_2);
-        update(&mut self.gpio_switch_3, request.switch_3);
-        update(&mut self.gpio_ph_down, request.ph_down_pump);
-        update(&mut self.gpio_ph_up, request.ph_up_pump);
-        update(&mut self.gpio_growlight, request.growlight);
+        update(&mut self.relay_1, request.relay_1);
+        update(&mut self.relay_2, request.relay_2);
+        update(&mut self.relay_3, request.relay_3);
+        update(&mut self.relay_6, request.relay_6);
+        update(&mut self.relay_7, request.relay_7);
+        update(&mut self.relay_8, request.relay_8);
 
         log::trace!("[relay_module] state updated -> {:?}", request);
 
@@ -143,12 +143,12 @@ impl mqtt::add_on::action_message::PublishStatus for Manager {
 
     fn get_status(&self) -> Self::Status {
         Self::Status {
-            switch_1: self.gpio_switch_1.get_state().into(),
-            switch_2: self.gpio_switch_2.get_state().into(),
-            switch_3: self.gpio_switch_3.get_state().into(),
-            ph_down_pump: self.gpio_ph_down.get_state().into(),
-            ph_up_pump: self.gpio_ph_up.get_state().into(),
-            ph_growlight: self.gpio_growlight.get_state().into(),
+            relay_1: self.relay_1.get_state().into(),
+            relay_2: self.relay_2.get_state().into(),
+            relay_3: self.relay_3.get_state().into(),
+            relay_6: self.relay_6.get_state().into(),
+            relay_7: self.relay_7.get_state().into(),
+            relay_8: self.relay_8.get_state().into(),
         }
     }
 }
@@ -163,12 +163,24 @@ pub mod action {
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct Update {
-        pub switch_1: Option<bool>,
-        pub switch_2: Option<bool>,
-        pub switch_3: Option<bool>,
-        pub ph_down_pump: Option<bool>,
-        pub ph_up_pump: Option<bool>,
-        pub growlight: Option<bool>,
+        pub relay_1: Option<bool>,
+        pub relay_2: Option<bool>,
+        pub relay_3: Option<bool>,
+        pub relay_6: Option<bool>,
+        pub relay_7: Option<bool>,
+        pub relay_8: Option<bool>,
+    }
+    impl Update {
+        pub fn empty() -> Self {
+            Self {
+                relay_1: None,
+                relay_2: None,
+                relay_3: None,
+                relay_6: None,
+                relay_7: None,
+                relay_8: None,
+            }
+        }
     }
     impl mqtt::add_on::action_message::MessageImpl for Update {
         const PREFIX: &'static str = constants::mqtt_prefix::REQUEST;
@@ -180,12 +192,12 @@ pub mod action {
     impl Default for Update {
         fn default() -> Self {
             Self {
-                switch_1: Some(relay::State::Open.into()),
-                switch_2: Some(relay::State::Open.into()),
-                switch_3: Some(relay::State::Close.into()),
-                ph_down_pump: Some(relay::State::Open.into()),
-                ph_up_pump: Some(relay::State::Open.into()),
-                growlight: Some(relay::State::Open.into()),
+                relay_1: Some(relay::State::Open.into()),
+                relay_2: Some(relay::State::Open.into()),
+                relay_3: Some(relay::State::Close.into()),
+                relay_6: Some(relay::State::Open.into()),
+                relay_7: Some(relay::State::Open.into()),
+                relay_8: Some(relay::State::Open.into()),
             }
         }
     }
@@ -201,28 +213,28 @@ pub mod action {
 
             let mut disp = f.debug_map();
 
-            if let Some(sw) = self.switch_1 {
-                disp.entry(&"switch_1", &show_state(sw));
+            if let Some(sw) = self.relay_1 {
+                disp.entry(&"relay_1", &show_state(sw));
             }
 
-            if let Some(sw) = self.switch_2 {
-                disp.entry(&"switch_2", &show_state(sw));
+            if let Some(sw) = self.relay_2 {
+                disp.entry(&"relay_2", &show_state(sw));
             }
 
-            if let Some(sw) = self.switch_3 {
-                disp.entry(&"switch_3", &show_state(sw));
+            if let Some(sw) = self.relay_3 {
+                disp.entry(&"relay_3", &show_state(sw));
             }
 
-            if let Some(sw) = self.ph_down_pump {
-                disp.entry(&"ph_down_pump", &show_state(sw));
+            if let Some(sw) = self.relay_6 {
+                disp.entry(&"relay_6", &show_state(sw));
             }
 
-            if let Some(sw) = self.ph_up_pump {
-                disp.entry(&"ph_up_pump", &show_state(sw));
+            if let Some(sw) = self.relay_7 {
+                disp.entry(&"relay_7", &show_state(sw));
             }
 
-            if let Some(sw) = self.growlight {
-                disp.entry(&"growlight", &show_state(sw));
+            if let Some(sw) = self.relay_8 {
+                disp.entry(&"relay_8", &show_state(sw));
             }
 
             disp.finish()
@@ -231,12 +243,12 @@ pub mod action {
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct RelayStatus {
-        pub switch_1: bool,
-        pub switch_2: bool,
-        pub switch_3: bool,
-        pub ph_down_pump: bool,
-        pub ph_up_pump: bool,
-        pub ph_growlight: bool,
+        pub relay_1: bool,
+        pub relay_2: bool,
+        pub relay_3: bool,
+        pub relay_6: bool,
+        pub relay_7: bool,
+        pub relay_8: bool,
     }
     impl mqtt::add_on::action_message::MessageImpl for RelayStatus {
         const PREFIX: &'static str = constants::mqtt_prefix::STATUS;

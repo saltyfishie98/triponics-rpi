@@ -40,7 +40,7 @@ impl Manager {
         if this.is_changed() {
             if let Err(e) = relay_manager.update_state(
                 manager::relay_module::action::Update {
-                    growlight: Some(this.state),
+                    relay_8: Some(this.state),
                     ..Default::default()
                 }, //
             ) {

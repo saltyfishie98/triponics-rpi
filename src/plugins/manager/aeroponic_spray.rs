@@ -64,8 +64,8 @@ impl Manager {
         if this.is_changed() {
             if let Err(e) = relay_manager.update_state(
                 relay_module::action::Update {
-                    switch_2: Some(this.sprayer_state),
-                    ..Default::default()
+                    relay_2: Some(this.sprayer_state),
+                    ..relay_module::action::Update::empty()
                 }, //
             ) {
                 log::warn!(
