@@ -95,6 +95,7 @@ where
                 topic: T::Status::topic(),
                 payload: state.get_status().to_payload(),
                 qos: T::Status::qos(),
+                retained: false,
             });
         }
     }

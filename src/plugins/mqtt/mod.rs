@@ -473,6 +473,7 @@ pub mod message {
                 topic: Self::topic(),
                 payload: self.to_payload(),
                 qos: Self::qos(),
+                retained: false,
             }
         }
     }
@@ -503,9 +504,10 @@ pub mod message {
 
     #[derive(Component, serde::Serialize, serde::Deserialize, Clone)]
     pub struct Message {
-        pub(super) topic: AtomicFixedString,
-        pub(super) payload: AtomicFixedBytes,
-        pub(super) qos: Qos,
+        pub topic: AtomicFixedString,
+        pub payload: AtomicFixedBytes,
+        pub qos: Qos,
+        pub retained: bool,
     }
     impl std::fmt::Debug for Message {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -526,8 +528,14 @@ pub mod message {
                 topic,
                 payload,
                 qos,
+                retained,
             } = value;
-            Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
+
+            if !retained {
+                Self::new(topic.as_ref(), payload.as_ref(), qos as i32)
+            } else {
+                Self::new_retained(topic.as_ref(), payload.as_ref(), qos as i32)
+            }
         }
     }
 }

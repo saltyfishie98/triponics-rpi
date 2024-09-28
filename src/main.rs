@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
         .add_plugins((
             manager::relay_module::Plugin,
             manager::growlight::Plugin,
-            manager::ph_dosing::Plugin,
+            manager::ph_ec_temp_sensor::Plugin,
             manager::aeroponic_spray::Plugin {
                 config: Default::default(),
             },

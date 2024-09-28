@@ -9,7 +9,7 @@ use bevy_ecs::system::Resource;
 use bevy_ecs::{event::Event, system::Res};
 use bevy_internal::prelude::{Deref, DerefMut};
 
-use crate::AtomicFixedString;
+use crate::{AtomicFixedBytes, AtomicFixedString};
 
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);
@@ -68,7 +68,6 @@ pub mod time {
         D: serde::Deserializer<'de>,
     {
         let data = String::deserialize(deserializer)?;
-        println!("{data}");
         Ok(time::OffsetDateTime::parse(&data, &crate::time_log_fmt()).unwrap())
     }
 }
@@ -79,5 +78,16 @@ pub trait ErrorLogFormat {
 impl<E: std::error::Error> ErrorLogFormat for error_stack::Report<E> {
     fn fmt_error(&self) -> AtomicFixedString {
         format!("\n{self:?}\n").into()
+    }
+}
+
+pub trait ToBytes {
+    fn to_bytes(&self) -> AtomicFixedBytes;
+}
+impl ToBytes for serde_json::Value {
+    fn to_bytes(&self) -> AtomicFixedBytes {
+        let mut bytes: Vec<u8> = Vec::new();
+        serde_json::to_writer(&mut bytes, self).unwrap();
+        bytes.into()
     }
 }

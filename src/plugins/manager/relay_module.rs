@@ -1,18 +1,25 @@
-use bevy_ecs::system::Resource;
+use bevy_app::Startup;
+use bevy_ecs::system::{Commands, Resource};
 use bevy_internal::time::common_conditions::on_timer;
 use relay::Relay;
 
-use crate::{helper::ErrorLogFormat, log, plugins::mqtt};
+use crate::{
+    helper::{ErrorLogFormat, ToBytes},
+    log,
+    plugins::mqtt,
+};
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<Manager>().add_plugins((
-            mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
-            mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(on_timer(
-                std::time::Duration::from_secs(1),
-            )),
-        ));
+        app.init_resource::<Manager>()
+            .add_plugins((
+                mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
+                mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(
+                    on_timer(std::time::Duration::from_secs(1)),
+                ),
+            ))
+            .add_systems(Startup, Manager::start);
     }
 }
 
@@ -88,6 +95,185 @@ impl Default for Manager {
     }
 }
 impl Manager {
+    pub fn start(mut cmd: Commands) {
+        #[derive(serde::Serialize)]
+        struct Device {
+            identifiers: Vec<&'static str>,
+            name: &'static str,
+        }
+
+        #[derive(serde::Serialize)]
+        struct HAConfig {
+            name: &'static str,
+            unique_id: &'static str,
+            command_topic: &'static str,
+            command_template: &'static str,
+            payload_on: bool,
+            payload_off: bool,
+            state_topic: &'static str,
+            value_template: &'static str,
+            state_on: bool,
+            state_off: bool,
+            device: Device,
+        }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_1/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 1 (Switch 1)",
+                    unique_id: "triponics-relay-module_1",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_1\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_1 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_2/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 2 (Switch 2)",
+                    unique_id: "triponics-relay-module_2",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_2\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_2 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_3/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 3 (Switch 3)",
+                    unique_id: "triponics-relay-module_3",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_3\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_3 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_4/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 6 (Pump pH Down)",
+                    unique_id: "triponics-relay-module_6",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_6\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_6 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_5/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 7 (Pump pH Up)",
+                    unique_id: "triponics-relay-module_7",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_7\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_7 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/switch/relay_8/relay_module/config".into(),
+            payload: {
+                serde_json::to_value(HAConfig {
+                    name: "Relay 8 (Growlight)",
+                    unique_id: "triponics-relay-module_8",
+                    command_topic: "request/triponics/relay_module/0",
+                    command_template: "{ \"relay_8\" : {{value}} }",
+                    payload_on: true,
+                    payload_off: false,
+                    state_topic: "data/triponics/relay_module/0",
+                    value_template: "{{ value_json.relay_8 }}",
+                    state_on: true,
+                    state_off: false,
+                    device: Device {
+                        identifiers: vec!["triponics-relay-module"],
+                        name: "Relay Module",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+    }
+
     pub fn update_state(&mut self, request: action::Update) -> ResultStack<()> {
         fn update<T: relay::Relay<rppal::gpio::OutputPin>>(this: &mut T, new_state: Option<bool>) {
             if let Some(state) = new_state {

@@ -53,6 +53,12 @@ impl From<Vec<u8>> for AtomicFixedBytes {
         Self(Arc::<[u8]>::from(value))
     }
 }
+impl<const SIZE: usize> From<&[u8; SIZE]> for AtomicFixedBytes {
+    fn from(value: &[u8; SIZE]) -> Self {
+        let value = Vec::from(value);
+        Self(value.into())
+    }
+}
 impl AsRef<[u8]> for AtomicFixedBytes {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
