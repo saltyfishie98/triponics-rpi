@@ -96,11 +96,7 @@ impl Default for Manager {
 }
 impl Manager {
     pub fn start(mut cmd: Commands) {
-        #[derive(serde::Serialize)]
-        struct Device {
-            identifiers: Vec<&'static str>,
-            name: &'static str,
-        }
+        use mqtt::add_on::home_assistant::Device;
 
         #[derive(serde::Serialize)]
         struct HAConfig {
@@ -124,7 +120,7 @@ impl Manager {
                     name: "Relay 1 (Switch 1)",
                     unique_id: "triponics-relay-module_1",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_1\" : {{value}} }",
+                    command_template: "{ \"relay_1\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -132,7 +128,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })
@@ -150,7 +146,7 @@ impl Manager {
                     name: "Relay 2 (Switch 2)",
                     unique_id: "triponics-relay-module_2",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_2\" : {{value}} }",
+                    command_template: "{ \"relay_2\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -158,7 +154,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })
@@ -176,7 +172,7 @@ impl Manager {
                     name: "Relay 3 (Switch 3)",
                     unique_id: "triponics-relay-module_3",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_3\" : {{value}} }",
+                    command_template: "{ \"relay_3\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -184,7 +180,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })
@@ -202,7 +198,7 @@ impl Manager {
                     name: "Relay 6 (Pump pH Down)",
                     unique_id: "triponics-relay-module_6",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_6\" : {{value}} }",
+                    command_template: "{ \"relay_6\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -210,7 +206,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })
@@ -228,7 +224,7 @@ impl Manager {
                     name: "Relay 7 (Pump pH Up)",
                     unique_id: "triponics-relay-module_7",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_7\" : {{value}} }",
+                    command_template: "{ \"relay_7\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -236,7 +232,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })
@@ -254,7 +250,7 @@ impl Manager {
                     name: "Relay 8 (Growlight)",
                     unique_id: "triponics-relay-module_8",
                     command_topic: "request/triponics/relay_module/0",
-                    command_template: "{ \"relay_8\" : {{value}} }",
+                    command_template: "{ \"relay_8\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
                     state_topic: "data/triponics/relay_module/0",
@@ -262,7 +258,7 @@ impl Manager {
                     state_on: true,
                     state_off: false,
                     device: Device {
-                        identifiers: vec!["triponics-relay-module"],
+                        identifiers: &["triponics-relay-module"],
                         name: "Relay Module",
                     },
                 })

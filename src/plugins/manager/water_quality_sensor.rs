@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use bevy_app::{Startup, Update};
-use bevy_ecs::system::{ResMut, Resource};
+use bevy_ecs::system::{Commands, ResMut, Resource};
 use bevy_internal::time::common_conditions::on_timer;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use tokio_modbus::prelude::*;
 
-use crate::{log, mqtt};
+use crate::{helper::ToBytes, log, mqtt};
 
 #[derive(Debug, Resource)]
 pub struct Manager {
@@ -79,6 +79,83 @@ impl Manager {
         });
     }
 
+    fn register_home_assistant(mut cmd: Commands) {
+        use mqtt::add_on::home_assistant::Device;
+
+        #[derive(serde::Serialize)]
+        struct Config {
+            name: &'static str,
+            icon: &'static str,
+            state_topic: &'static str,
+            value_template: &'static str,
+            unit_of_measurement: &'static str,
+            device: Device,
+        }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/ph/water_quality_sensor/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Water pH",
+                    icon: "mdi:flask-round-bottom",
+                    state_topic: "data/triponics/water_quality_sensor/0",
+                    value_template: "{{ value_json.ph }}",
+                    unit_of_measurement: "pH",
+                    device: Device {
+                        identifiers: &["water_quality_sensor"],
+                        name: "Water Quality Sensor",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/ec/water_quality_sensor/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Water EC",
+                    icon: "mdi:lightning-bolt-outline",
+                    state_topic: "data/triponics/water_quality_sensor/0",
+                    value_template: "{{ value_json.ec }}",
+                    unit_of_measurement: "mS/cm",
+                    device: Device {
+                        identifiers: &["water_quality_sensor"],
+                        name: "Water Quality Sensor",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/temperature/water_quality_sensor/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Water Temperature",
+                    icon: "mdi:water-thermometer",
+                    state_topic: "data/triponics/water_quality_sensor/0",
+                    value_template: "{{ value_json.temp }}",
+                    unit_of_measurement: "°C",
+                    device: Device {
+                        identifiers: &["water_quality_sensor"],
+                        name: "Water Quality Sensor",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+    }
+
     fn update(mut manager: ResMut<Manager>) {
         let data = *manager.sensor_data_rx.borrow_and_update();
         manager.latest_data = data;
@@ -101,7 +178,7 @@ impl bevy_app::Plugin for Plugin {
                     on_timer(Duration::from_secs(1)),
                 ),
             ))
-            .add_systems(Startup, Manager::start)
+            .add_systems(Startup, (Manager::start, Manager::register_home_assistant))
             .add_systems(Update, Manager::update);
     }
 }
@@ -129,7 +206,7 @@ impl SensorData {
 mod action {
     use crate::{constants, mqtt};
 
-    pub const GROUP: &str = "ph_ec_temp_sensor";
+    pub const GROUP: &str = "water_quality_sensor";
     pub const QOS: mqtt::Qos = mqtt::Qos::_1;
 
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
