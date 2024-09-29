@@ -10,3 +10,6 @@ pub use relay_module::Manager as RelayManager;
 
 pub mod water_quality_sensor;
 // pub use ph_ec_temp_sensor::Manager as PhEcTempSensorManager;
+
+pub mod ph_dosing;
+// pub use ph_dosing::Manager as PhDosingManager;

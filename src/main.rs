@@ -53,6 +53,7 @@ fn main() -> anyhow::Result<()> {
         ))
         .add_plugins((
             manager::relay_module::Plugin,
+            manager::ph_dosing::Plugin,
             manager::growlight::Plugin,
             manager::water_quality_sensor::Plugin,
             manager::aeroponic_spray::Plugin {
