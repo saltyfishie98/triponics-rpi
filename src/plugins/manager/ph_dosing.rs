@@ -145,6 +145,12 @@ impl Manager {
 
                 let mut this = world.get_resource_mut::<Self>().unwrap();
                 this.ph_down_state = false;
+
+                let request = action::Update {
+                    ph_down: Some(this.ph_down_state),
+                    ph_up: None,
+                };
+                log::info!("[ph_dosing] <APP> set -> {request}");
             })
             .await;
         });
@@ -195,6 +201,12 @@ impl Manager {
 
                 let mut this = world.get_resource_mut::<Self>().unwrap();
                 this.ph_up_state = false;
+
+                let request = action::Update {
+                    ph_down: None,
+                    ph_up: Some(this.ph_up_state),
+                };
+                log::info!("[ph_dosing] <APP> set -> {request}");
             })
             .await;
         });
@@ -205,6 +217,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     type Response = action::Response;
 
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
+        log::info!("[ph_dosing] <USER> set -> {request}");
+
         state.update_state(request);
         Some(action::Response(Ok("updated ph dosing state".into())))
     }
@@ -226,6 +240,21 @@ mod action {
         const GROUP: &'static str = GROUP;
         const DEVICE: &'static str = constants::project::DEVICE;
         const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl std::fmt::Display for Update {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let mut disp = f.debug_map();
+
+            if let Some(up) = self.ph_up {
+                disp.entry(&"ph_up", &up);
+            }
+
+            if let Some(down) = self.ph_down {
+                disp.entry(&"ph_down", &down);
+            };
+
+            disp.finish()
+        }
     }
 
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
