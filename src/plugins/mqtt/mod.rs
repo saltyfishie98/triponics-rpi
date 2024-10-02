@@ -101,8 +101,8 @@ impl Plugin {
             }
         }
 
-        async fn mqtt_ping_task(client: paho_mqtt::AsyncClient, duration: Duration) {
-            let ping_interval = Duration::from_secs_f32(duration.as_secs_f32() * 0.7);
+        async fn mqtt_ping_task(client: paho_mqtt::AsyncClient, keep_alive_interval: Duration) {
+            let ping_interval = Duration::from_secs_f32(keep_alive_interval.as_secs_f32() * 0.6);
             log::debug!("[mqtt] ping interval: {}", ping_interval.as_secs_f32());
 
             loop {
