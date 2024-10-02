@@ -8,6 +8,25 @@ use tokio_modbus::prelude::*;
 
 use crate::{helper::ToBytes, log, mqtt};
 
+pub struct Plugin;
+impl bevy_app::Plugin for Plugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        use mqtt::add_on::action_message::StatusMessage;
+
+        app.init_resource::<Manager>()
+            .add_plugins((
+                StatusMessage::<Manager, action::Database>::publish_condition(
+                    on_timer(Duration::from_secs(5 * 60)), //
+                ),
+                StatusMessage::<Manager, action::MqttStatus>::publish_condition(
+                    on_timer(Duration::from_secs(1)), //
+                ),
+            ))
+            .add_systems(Startup, (Manager::start, Manager::register_home_assistant))
+            .add_systems(Update, Manager::update);
+    }
+}
+
 #[derive(Debug, Resource)]
 pub struct Manager {
     data_sender: Option<tokio::sync::watch::Sender<SensorData>>,
@@ -119,7 +138,7 @@ impl Manager {
                 serde_json::to_value(Config {
                     name: "Water EC",
                     icon: "mdi:lightning-bolt-outline",
-                    state_topic: "data/triponics/water_quality_sensor/0",
+                    state_topic: "status/triponics/water_quality_sensor/0",
                     value_template: "{{ value_json.ec }}",
                     unit_of_measurement: "mS/cm",
                     device: Device {
@@ -140,7 +159,7 @@ impl Manager {
                 serde_json::to_value(Config {
                     name: "Water Temperature",
                     icon: "mdi:water-thermometer",
-                    state_topic: "data/triponics/water_quality_sensor/0",
+                    state_topic: "status/triponics/water_quality_sensor/0",
                     value_template: "{{ value_json.temp }}",
                     unit_of_measurement: "°C",
                     device: Device {
@@ -162,24 +181,8 @@ impl Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::Status;
-
-    fn get_status(&self) -> Self::Status {
-        self.get_data().into()
-    }
-}
-
-pub struct Plugin;
-impl bevy_app::Plugin for Plugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<Manager>()
-            .add_plugins((
-                mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(
-                    on_timer(Duration::from_secs(1)),
-                ),
-            ))
-            .add_systems(Startup, (Manager::start, Manager::register_home_assistant))
-            .add_systems(Update, Manager::update);
+    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
+        action::Database(self.get_data().into())
     }
 }
 
@@ -210,20 +213,13 @@ mod action {
     pub const QOS: mqtt::Qos = mqtt::Qos::_1;
 
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
-    pub struct Status {
+    pub struct State {
         timestamp: i64,
         ph: f32,
         ec: f32,
         temp: f32,
     }
-    impl mqtt::add_on::action_message::MessageImpl for Status {
-        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
-        const PROJECT: &'static str = constants::project::NAME;
-        const GROUP: &'static str = GROUP;
-        const DEVICE: &'static str = constants::project::DEVICE;
-        const QOS: mqtt::Qos = QOS;
-    }
-    impl From<super::SensorData> for Status {
+    impl From<super::SensorData> for State {
         fn from(value: super::SensorData) -> Self {
             let super::SensorData { ph, ec, temp } = value;
 
@@ -234,5 +230,25 @@ mod action {
                 temp,
             }
         }
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    pub struct Database(pub State);
+    impl mqtt::add_on::action_message::MessageImpl for Database {
+        const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
+        const PROJECT: &'static str = constants::project::NAME;
+        const GROUP: &'static str = GROUP;
+        const DEVICE: &'static str = constants::project::DEVICE;
+        const QOS: mqtt::Qos = QOS;
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    pub struct MqttStatus(pub State);
+    impl mqtt::add_on::action_message::MessageImpl for MqttStatus {
+        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+        const PROJECT: &'static str = constants::project::NAME;
+        const GROUP: &'static str = GROUP;
+        const DEVICE: &'static str = constants::project::DEVICE;
+        const QOS: mqtt::Qos = QOS;
     }
 }

@@ -2,10 +2,20 @@ use std::time::Duration;
 
 use bevy_app::Update;
 use bevy_ecs::system::{Res, Resource};
-use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
+use bevy_internal::prelude::DetectChanges;
 use bevy_tokio_tasks::TokioTasksRuntime;
 
-use crate::{constants, mqtt, plugins};
+use crate::{mqtt, plugins};
+
+pub struct Plugin;
+impl bevy_app::Plugin for Plugin {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.init_resource::<plugins::manager::RelayManager>()
+            .init_resource::<Manager>()
+            .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
+            .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
+    }
+}
 
 #[derive(Debug, Resource, serde::Deserialize, serde::Serialize)]
 pub struct Manager {
@@ -135,16 +145,6 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     fn update_state(request: Self::Request, state: &mut Self) -> Option<Self::Response> {
         state.update_state(request);
         Some(action::Response(Ok("updated ph dosing state".into())))
-    }
-}
-
-pub struct Plugin;
-impl bevy_app::Plugin for Plugin {
-    fn build(&self, app: &mut bevy_app::App) {
-        app.init_resource::<plugins::manager::RelayManager>()
-            .init_resource::<Manager>()
-            .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
-            .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
     }
 }
 

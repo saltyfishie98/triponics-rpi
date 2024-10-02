@@ -15,7 +15,7 @@ impl bevy_app::Plugin for Plugin {
         app.init_resource::<Manager>()
             .add_plugins((
                 mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
-                mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(
+                mqtt::add_on::action_message::StatusMessage::<Manager, action::RelayStatus>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)),
                 ),
             ))
@@ -321,10 +321,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::RelayStatus;
-
-    fn get_status(&self) -> Self::Status {
-        Self::Status {
+    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
+        action::RelayStatus {
             relay_1: self.relay_1.get_state().into(),
             relay_2: self.relay_2.get_state().into(),
             relay_3: self.relay_3.get_state().into(),
@@ -433,7 +431,7 @@ pub mod action {
         pub relay_8: bool,
     }
     impl mqtt::add_on::action_message::MessageImpl for RelayStatus {
-        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+        const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
         const DEVICE: &'static str = constants::project::DEVICE;

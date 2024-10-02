@@ -45,8 +45,7 @@ pub trait PublishStatus
 where
     Self: Resource + Sized + Send + Sync + 'static,
 {
-    type Status: MessageImpl;
-    fn get_status(&self) -> Self::Status;
+    fn get_status(&self) -> impl MessageImpl;
 }
 
 pub trait RequestHandler
@@ -66,21 +65,24 @@ where
     }
 }
 
-pub struct StatusMessage<T>
+pub struct StatusMessage<T, Msg>
 where
     T: PublishStatus,
+    Msg: MessageImpl,
 {
     _p: PhantomData<T>,
+    _m: PhantomData<Msg>,
     system_configs: RwLock<Option<SystemConfigs>>,
 }
-impl<T> StatusMessage<T>
+impl<T, Msg> StatusMessage<T, Msg>
 where
     T: PublishStatus,
-    T::Status: Send + Sync + 'static,
+    Msg: MessageImpl + Send + Sync + 'static,
 {
     pub fn publish_condition<M>(condition: impl Condition<M>) -> Self {
         Self {
             _p: PhantomData::<T>,
+            _m: PhantomData::<Msg>,
             system_configs: RwLock::new(Some(
                 IntoSystem::into_system(Self::publish_status)
                     .run_if(condition)
@@ -92,23 +94,23 @@ where
     fn publish_status(mut cmd: Commands, maybe_state: Option<Res<T>>) {
         if let Some(state) = maybe_state {
             cmd.spawn(message::Message {
-                topic: T::Status::topic(),
+                topic: Msg::topic(),
                 payload: state.get_status().to_payload(),
-                qos: T::Status::qos(),
+                qos: Msg::qos(),
                 retained: false,
             });
         }
     }
 }
-impl<T> Plugin for StatusMessage<T>
+impl<T, Msg> Plugin for StatusMessage<T, Msg>
 where
     T: PublishStatus,
-    T::Status: Send + Sync + 'static,
+    Msg: MessageImpl + Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy_app::App) {
         let system = self.system_configs.write().unwrap().take().unwrap();
 
-        app.add_event::<local::StatusUpdate<T>>()
+        app.add_event::<local::StatusUpdate<Msg>>()
             .add_systems(Update, system);
     }
 }
@@ -167,5 +169,5 @@ mod local {
     use super::*;
 
     #[derive(Debug, Event)]
-    pub struct StatusUpdate<T: PublishStatus>(T::Status);
+    pub struct StatusUpdate<Msg: MessageImpl>(Msg);
 }

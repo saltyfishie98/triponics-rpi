@@ -22,9 +22,9 @@ impl bevy_app::Plugin for Plugin {
             .init_resource::<Manager>()
             .insert_resource(self.config.clone())
             .add_plugins((
-                StatusMessage::<Manager>::publish_condition(on_timer(
-                    std::time::Duration::from_secs(1),
-                )),
+                StatusMessage::<Manager, action::AeroponicSprayerStatus>::publish_condition(
+                    on_timer(std::time::Duration::from_secs(1)),
+                ),
                 state_file::StateFile::<Manager>::new(),
             ))
             .add_systems(Update, (Manager::watcher, Manager::update_switch));
@@ -145,9 +145,7 @@ impl state_file::SaveState for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = action::AeroponicSprayerStatus;
-
-    fn get_status(&self) -> Self::Status {
+    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
         let next_spray_time = if !self.sprayer_state {
             self.next_spray_time
                 .to_offset(*crate::timezone_offset())
@@ -157,7 +155,7 @@ impl mqtt::add_on::action_message::PublishStatus for Manager {
             "".into()
         };
 
-        Self::Status {
+        action::AeroponicSprayerStatus {
             sprayer_state: self.sprayer_state,
             next_spray_time,
         }
@@ -173,7 +171,7 @@ pub mod action {
         pub next_spray_time: AtomicFixedString,
     }
     impl mqtt::add_on::action_message::MessageImpl for AeroponicSprayerStatus {
-        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+        const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = "aeroponics";
         const DEVICE: &'static str = constants::project::DEVICE;

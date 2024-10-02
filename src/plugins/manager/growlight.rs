@@ -15,7 +15,7 @@ impl bevy_app::Plugin for Plugin {
             .add_plugins((
                 state_file::StateFile::<Manager>::new(),
                 mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
-                mqtt::add_on::action_message::StatusMessage::<Manager>::publish_condition(
+                mqtt::add_on::action_message::StatusMessage::<Manager, Manager>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)),
                 ),
             ))
@@ -50,7 +50,7 @@ impl Manager {
     }
 }
 impl mqtt::add_on::action_message::MessageImpl for Manager {
-    const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+    const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
     const PROJECT: &'static str = constants::project::NAME;
     const GROUP: &'static str = action::GROUP;
     const DEVICE: &'static str = constants::project::DEVICE;
@@ -76,9 +76,7 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus for Manager {
-    type Status = Self;
-
-    fn get_status(&self) -> Self::Status {
+    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
         Self { state: self.state }
     }
 }

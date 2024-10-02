@@ -6,7 +6,8 @@ pub mod project {
 }
 
 pub mod mqtt_prefix {
-    pub const STATUS: &str = "data";
+    pub const STATUS: &str = "status";
+    pub const DATABASE: &str = "data";
     pub const REQUEST: &str = "request";
     pub const RESPONSE: &str = "response";
 }
