@@ -50,7 +50,7 @@ impl Manager {
     }
 }
 impl mqtt::add_on::action_message::MessageImpl for Manager {
-    const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
+    const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
     const PROJECT: &'static str = constants::project::NAME;
     const GROUP: &'static str = action::GROUP;
     const DEVICE: &'static str = constants::project::DEVICE;

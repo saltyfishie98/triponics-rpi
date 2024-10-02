@@ -123,7 +123,7 @@ impl Manager {
                     command_template: "{ \"relay_1\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_1 }}",
                     state_on: true,
                     state_off: false,
@@ -149,7 +149,7 @@ impl Manager {
                     command_template: "{ \"relay_2\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_2 }}",
                     state_on: true,
                     state_off: false,
@@ -175,7 +175,7 @@ impl Manager {
                     command_template: "{ \"relay_3\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_3 }}",
                     state_on: true,
                     state_off: false,
@@ -201,7 +201,7 @@ impl Manager {
                     command_template: "{ \"relay_6\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_6 }}",
                     state_on: true,
                     state_off: false,
@@ -227,7 +227,7 @@ impl Manager {
                     command_template: "{ \"relay_7\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_7 }}",
                     state_on: true,
                     state_off: false,
@@ -253,7 +253,7 @@ impl Manager {
                     command_template: "{ \"relay_8\" : {{value | lower}} }",
                     payload_on: true,
                     payload_off: false,
-                    state_topic: "data/triponics/relay_module/0",
+                    state_topic: "status/triponics/relay_module/0",
                     value_template: "{{ value_json.relay_8 }}",
                     state_on: true,
                     state_off: false,
@@ -431,7 +431,7 @@ pub mod action {
         pub relay_8: bool,
     }
     impl mqtt::add_on::action_message::MessageImpl for RelayStatus {
-        const PREFIX: &'static str = constants::mqtt_prefix::DATABASE;
+        const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
         const PROJECT: &'static str = constants::project::NAME;
         const GROUP: &'static str = GROUP;
         const DEVICE: &'static str = constants::project::DEVICE;

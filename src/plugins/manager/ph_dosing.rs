@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use bevy_app::Update;
-use bevy_ecs::system::{Res, Resource};
+use bevy_app::{Startup, Update};
+use bevy_ecs::system::{Commands, Res, Resource};
 use bevy_internal::prelude::DetectChanges;
 use bevy_tokio_tasks::TokioTasksRuntime;
 
-use crate::{mqtt, plugins};
+use crate::{helper::ToBytes, log, mqtt, plugins};
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
@@ -13,6 +13,7 @@ impl bevy_app::Plugin for Plugin {
         app.init_resource::<plugins::manager::RelayManager>()
             .init_resource::<Manager>()
             .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
+            .add_systems(Startup, (Manager::register_home_assistant,))
             .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
     }
 }
@@ -34,7 +35,60 @@ impl Default for Manager {
     }
 }
 impl Manager {
+    fn register_home_assistant(mut cmd: Commands) {
+        #[derive(serde::Serialize)]
+        struct Config {
+            name: &'static str,
+            command_topic: &'static str,
+            command_template: &'static str,
+            payload_press: bool,
+            device: mqtt::add_on::home_assistant::Device,
+        }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/button/down/ph_dosing/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Dose pH Down",
+                    command_topic: "request/triponics/ph_dosing/0",
+                    command_template: "{ \"ph_down\" : {{value | lower}} }",
+                    payload_press: true,
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["triponics-ph-dosing"],
+                        name: "Dosing Pumps",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/button/up/ph_dosing/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Dose pH Up",
+                    command_topic: "request/triponics/ph_dosing/0",
+                    command_template: "{ \"ph_up\" : {{value | lower}} }",
+                    payload_press: true,
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["triponics-ph-dosing"],
+                        name: "Dosing Pumps",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+    }
+
     fn update_state(&mut self, state: action::Update) {
+        log::trace!("{state:?}");
+
         let action::Update { ph_down, ph_up } = state;
 
         if let Some(down_state) = ph_down {
@@ -76,8 +130,9 @@ impl Manager {
             tokio::time::sleep(dur).await;
 
             ctx.run_on_main_thread(|ctx| {
-                let mut relay_manager = ctx
-                    .world
+                let world = ctx.world;
+
+                let mut relay_manager = world
                     .get_resource_mut::<plugins::manager::RelayManager>()
                     .unwrap();
 
@@ -87,6 +142,9 @@ impl Manager {
                         ..plugins::manager::relay_module::action::Update::empty()
                     })
                     .unwrap();
+
+                let mut this = world.get_resource_mut::<Self>().unwrap();
+                this.ph_down_state = false;
             })
             .await;
         });
@@ -122,8 +180,9 @@ impl Manager {
             tokio::time::sleep(dur).await;
 
             ctx.run_on_main_thread(|ctx| {
-                let mut relay_manager = ctx
-                    .world
+                let world = ctx.world;
+
+                let mut relay_manager = world
                     .get_resource_mut::<plugins::manager::RelayManager>()
                     .unwrap();
 
@@ -133,6 +192,9 @@ impl Manager {
                         ..plugins::manager::relay_module::action::Update::empty()
                     })
                     .unwrap();
+
+                let mut this = world.get_resource_mut::<Self>().unwrap();
+                this.ph_up_state = false;
             })
             .await;
         });
