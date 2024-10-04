@@ -24,11 +24,15 @@ impl bevy_app::Plugin for Plugin {
 #[derive(Debug, serde::Deserialize, serde::Serialize, Resource, Clone, Copy)]
 pub struct Config {
     pub unit_time: Duration,
+    pub ph_setpoint: f32,
+    pub ph_daily_delta: f32,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
             unit_time: Duration::from_secs(3),
+            ph_setpoint: 7.0,
+            ph_daily_delta: 0.3,
         }
     }
 }
