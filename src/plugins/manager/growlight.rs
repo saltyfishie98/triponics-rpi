@@ -75,8 +75,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
         }
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for Manager {
-    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
+impl mqtt::add_on::action_message::PublishStatus<Manager> for Manager {
+    fn get_status(&self) -> Self {
         Self { state: self.state }
     }
 }

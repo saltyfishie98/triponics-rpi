@@ -320,8 +320,8 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
         ))
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for Manager {
-    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
+impl mqtt::add_on::action_message::PublishStatus<action::RelayStatus> for Manager {
+    fn get_status(&self) -> action::RelayStatus {
         action::RelayStatus {
             relay_1: self.relay_1.get_state().into(),
             relay_2: self.relay_2.get_state().into(),

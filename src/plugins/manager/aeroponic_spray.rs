@@ -144,8 +144,8 @@ impl state_file::SaveState for Manager {
         }
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for Manager {
-    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
+impl mqtt::add_on::action_message::PublishStatus<action::AeroponicSprayerStatus> for Manager {
+    fn get_status(&self) -> action::AeroponicSprayerStatus {
         let next_spray_time = if !self.sprayer_state {
             self.next_spray_time
                 .to_offset(*crate::timezone_offset())

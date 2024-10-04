@@ -16,7 +16,7 @@ impl bevy_app::Plugin for Plugin {
         app.init_resource::<Manager>()
             .add_plugins((
                 StatusMessage::<Manager, action::Database>::publish_condition(
-                    on_timer(Duration::from_secs(5 * 60)), //
+                    on_timer(Duration::from_secs(60)), //
                 ),
                 StatusMessage::<Manager, action::MqttStatus>::publish_condition(
                     on_timer(Duration::from_secs(1)), //
@@ -107,9 +107,30 @@ impl Manager {
             icon: &'static str,
             state_topic: &'static str,
             value_template: &'static str,
-            unit_of_measurement: &'static str,
+            unit_of_measurement: Option<&'static str>,
             device: Device,
         }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/time/water_quality_sensor/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Sampled Time",
+                    icon: "mdi:clock",
+                    state_topic: "status/triponics/water_quality_sensor/0",
+                    value_template: "{{ as_datetime(value_json.timestamp) | as_local }}",
+                    unit_of_measurement: None,
+                    device: Device {
+                        identifiers: &["water_quality_sensor"],
+                        name: "Water Quality Sensor",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
 
         cmd.spawn(mqtt::message::Message {
             topic: "homeassistant/sensor/ph/water_quality_sensor/config".into(),
@@ -117,9 +138,9 @@ impl Manager {
                 serde_json::to_value(Config {
                     name: "Water pH",
                     icon: "mdi:flask-round-bottom",
-                    state_topic: "data/triponics/water_quality_sensor/0",
+                    state_topic: "status/triponics/water_quality_sensor/0",
                     value_template: "{{ value_json.ph }}",
-                    unit_of_measurement: "pH",
+                    unit_of_measurement: Some("pH"),
                     device: Device {
                         identifiers: &["water_quality_sensor"],
                         name: "Water Quality Sensor",
@@ -140,7 +161,7 @@ impl Manager {
                     icon: "mdi:lightning-bolt-outline",
                     state_topic: "status/triponics/water_quality_sensor/0",
                     value_template: "{{ value_json.ec }}",
-                    unit_of_measurement: "mS/cm",
+                    unit_of_measurement: Some("mS/cm"),
                     device: Device {
                         identifiers: &["water_quality_sensor"],
                         name: "Water Quality Sensor",
@@ -161,7 +182,7 @@ impl Manager {
                     icon: "mdi:water-thermometer",
                     state_topic: "status/triponics/water_quality_sensor/0",
                     value_template: "{{ value_json.temp }}",
-                    unit_of_measurement: "°C",
+                    unit_of_measurement: Some("°C"),
                     device: Device {
                         identifiers: &["water_quality_sensor"],
                         name: "Water Quality Sensor",
@@ -180,9 +201,16 @@ impl Manager {
         manager.latest_data = data;
     }
 }
-impl mqtt::add_on::action_message::PublishStatus for Manager {
-    fn get_status(&self) -> impl mqtt::add_on::action_message::MessageImpl {
-        action::Database(self.get_data().into())
+impl mqtt::add_on::action_message::PublishStatus<action::Database> for Manager {
+    fn get_status(&self) -> action::Database {
+        let out = action::Database(self.get_data().into());
+        log::info!("new water quality entry: {out:?}");
+        out
+    }
+}
+impl mqtt::add_on::action_message::PublishStatus<action::MqttStatus> for Manager {
+    fn get_status(&self) -> action::MqttStatus {
+        action::MqttStatus(self.get_data().into())
     }
 }
 

@@ -41,11 +41,11 @@ where
     }
 }
 
-pub trait PublishStatus
+pub trait PublishStatus<T: MessageImpl>
 where
     Self: Resource + Sized + Send + Sync + 'static,
 {
-    fn get_status(&self) -> impl MessageImpl;
+    fn get_status(&self) -> T;
 }
 
 pub trait RequestHandler
@@ -67,7 +67,7 @@ where
 
 pub struct StatusMessage<T, Msg>
 where
-    T: PublishStatus,
+    T: PublishStatus<Msg>,
     Msg: MessageImpl,
 {
     _p: PhantomData<T>,
@@ -76,7 +76,7 @@ where
 }
 impl<T, Msg> StatusMessage<T, Msg>
 where
-    T: PublishStatus,
+    T: PublishStatus<Msg>,
     Msg: MessageImpl + Send + Sync + 'static,
 {
     pub fn publish_condition<M>(condition: impl Condition<M>) -> Self {
@@ -104,7 +104,7 @@ where
 }
 impl<T, Msg> Plugin for StatusMessage<T, Msg>
 where
-    T: PublishStatus,
+    T: PublishStatus<Msg>,
     Msg: MessageImpl + Send + Sync + 'static,
 {
     fn build(&self, app: &mut bevy_app::App) {
