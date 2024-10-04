@@ -30,14 +30,9 @@ pub struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let (config::AppConfig {
-        mqtt:
-            config::app::mqtt::Config {
-                create_options: client_create_options,
-                connect_options: client_connect_options,
-            },
-    },) = local::try_init();
+    local::try_init();
 
+    let mqtt_config = mqtt::Plugin::load_config().unwrap();
     let aeroponic_config = manager::AeroponicSprayManager::load_config().unwrap();
     let ph_dosing_config = manager::PhDosingManager::load_config().unwrap();
 
@@ -51,8 +46,7 @@ fn main() -> anyhow::Result<()> {
         .add_plugins((
             state_file::Plugin::default(),
             mqtt::Plugin {
-                client_create_options,
-                client_connect_options,
+                config: mqtt_config,
             },
         ))
         .add_plugins((
@@ -80,14 +74,9 @@ mod local {
 
     use super::*;
 
-    pub fn try_init() -> (config::AppConfig,) {
+    pub fn try_init() {
         let args = Args::parse();
         init_logging(args.stdout);
-
-        let config = config::AppConfig::load();
-        log::debug!("config:\n{config:#?}");
-
-        (config,)
     }
 
     pub fn init_logging(to_stdout: bool) {

@@ -24,11 +24,42 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::{helper::AsyncEventExt, log, AtomicFixedString};
+use crate::{config::ConfigFile, helper::AsyncEventExt, log, AtomicFixedString};
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct Config {
+    pub create_options: ClientCreateOptions,
+    pub connect_options: ClientConnectOptions,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            create_options: ClientCreateOptions {
+                server_uri: "10.42.0.1:1883".into(),
+                client_id: "triponics-test-1".into(),
+                restart_interval: Duration::from_secs(3),
+                cache_dir_path: ClientCreateOptions::default_cache_path(),
+                incoming_msg_buffer_size: 25,
+                max_buffered_messages: None,
+                persistence_type: None,
+                send_while_disconnected: None,
+                allow_disconnected_send_at_anytime: None,
+                delete_oldest_messages: None,
+                restore_messages: None,
+                persist_qos0: None,
+            },
+            connect_options: ClientConnectOptions {
+                keep_alive_interval: Some(Duration::from_secs(1)),
+                clean_start: Some(false),
+                max_inflight: None,
+                connect_timeout: None,
+            },
+        }
+    }
+}
 
 pub struct Plugin {
-    pub client_create_options: ClientCreateOptions,
-    pub client_connect_options: ClientConnectOptions,
+    pub config: Config,
 }
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
@@ -36,8 +67,11 @@ impl bevy_app::Plugin for Plugin {
             std::sync::mpsc::channel::<event::IncomingMessage>();
 
         let Self {
-            client_create_options,
-            client_connect_options,
+            config:
+                Config {
+                    create_options: client_create_options,
+                    connect_options: client_connect_options,
+                },
         } = self;
 
         app.insert_resource(client_create_options.clone())
@@ -46,7 +80,7 @@ impl bevy_app::Plugin for Plugin {
             .insert_resource(local::MqttIncommingMsgTx(mqtt_incoming_msg_queue))
             .insert_resource(local::MqttCacheManager::new(
                 client_create_options.client_id.clone(),
-                client_create_options.cache_dir_path.as_ref().unwrap(),
+                client_create_options.cache_dir_path.as_path(),
             ))
             .add_event::<event::RestartClient>()
             .add_async_event_receiver(mqtt_incoming_msg_rx)
@@ -163,7 +197,7 @@ impl Plugin {
             r_timer.tick(time.delta());
         } else if client.is_some() {
             restart_timer.replace(Timer::new(
-                create_opts.restart_interval.unwrap(),
+                create_opts.restart_interval,
                 bevy_internal::time::TimerMode::Repeating,
             ));
         }
@@ -224,7 +258,7 @@ impl Plugin {
                                 make_client(
                                     paho_create_opts,
                                     paho_conn_opts,
-                                    create_opts.incoming_msg_buffer_size.unwrap(),
+                                    create_opts.incoming_msg_buffer_size,
                                     paho_subs,
                                 )
                                 .await,
@@ -443,6 +477,10 @@ impl Plugin {
             });
         });
     }
+}
+impl ConfigFile for Plugin {
+    const FILENAME: &'static str = "mqtt_client";
+    type Config = Config;
 }
 
 pub mod message {

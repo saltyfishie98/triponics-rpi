@@ -1,7 +1,6 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use bevy_ecs::system::Resource;
-use serde_with::serde_as;
 
 use crate::AtomicFixedString;
 
@@ -12,19 +11,9 @@ use super::PersistenceType;
 pub struct ClientCreateOptions {
     pub server_uri: AtomicFixedString,
     pub client_id: AtomicFixedString,
-
-    #[serde(default = "ClientCreateOptions::default_cache_path")]
-    pub cache_dir_path: Option<PathBuf>,
-
-    #[serde(default = "ClientCreateOptions::default_incoming_msg_buffer_size")]
-    pub incoming_msg_buffer_size: Option<usize>,
-
-    #[serde(
-        alias = "restart_interval_ms",
-        default = "ClientCreateOptions::default_restart_interval"
-    )]
-    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
-    pub restart_interval: Option<Duration>,
+    pub cache_dir_path: PathBuf,
+    pub incoming_msg_buffer_size: usize,
+    pub restart_interval: Duration,
 
     pub max_buffered_messages: Option<i32>,
     pub persistence_type: Option<PersistenceType>,
@@ -35,19 +24,11 @@ pub struct ClientCreateOptions {
     pub persist_qos0: Option<bool>,
 }
 impl ClientCreateOptions {
-    fn default_cache_path() -> Option<PathBuf> {
+    pub(super) fn default_cache_path() -> PathBuf {
         let mut cache_dir_path = std::env::current_dir().unwrap();
         cache_dir_path.push("data");
         cache_dir_path.push("cache");
-        Some(cache_dir_path)
-    }
-
-    fn default_incoming_msg_buffer_size() -> Option<usize> {
-        Some(25)
-    }
-
-    fn default_restart_interval() -> Option<Duration> {
-        Some(Duration::from_secs(5))
+        cache_dir_path
     }
 }
 impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
@@ -127,13 +108,7 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
 pub struct ClientConnectOptions {
     pub clean_start: Option<bool>,
     pub max_inflight: Option<i32>,
-
-    #[serde(alias = "connect_timeout_ms")]
-    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
     pub connect_timeout: Option<Duration>,
-
-    #[serde(alias = "keep_alive_interval_ms")]
-    #[serde_as(as = "Option<serde_with::DurationMilliSeconds<u64>>")]
     pub keep_alive_interval: Option<Duration>,
 }
 impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {

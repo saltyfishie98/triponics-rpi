@@ -1,10 +1,7 @@
-pub mod app;
 use std::{
     fs::OpenOptions,
     io::{BufReader, Write},
 };
-
-pub use app::AppConfig;
 
 pub trait ConfigFile {
     const FILENAME: &'static str;
