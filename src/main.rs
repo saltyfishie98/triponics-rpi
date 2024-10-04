@@ -3,6 +3,7 @@ mod constants;
 mod helper;
 
 mod plugins;
+use config::ConfigFile;
 use plugins::*;
 
 mod newtype;
@@ -37,6 +38,9 @@ fn main() -> anyhow::Result<()> {
             },
     },) = local::try_init();
 
+    let aeroponic_config = manager::AeroponicSprayManager::load_config().unwrap();
+    let ph_dosing_config = manager::PhDosingManager::load_config().unwrap();
+
     App::new()
         .add_plugins((
             MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f32(
@@ -53,11 +57,13 @@ fn main() -> anyhow::Result<()> {
         ))
         .add_plugins((
             manager::relay_module::Plugin,
-            manager::ph_dosing::Plugin,
             manager::growlight::Plugin,
             manager::water_quality_sensor::Plugin,
+            manager::ph_dosing::Plugin {
+                config: ph_dosing_config,
+            },
             manager::aeroponic_spray::Plugin {
-                config: Default::default(),
+                config: aeroponic_config,
             },
         ))
         .add_systems(Startup, (local::exit_task,))

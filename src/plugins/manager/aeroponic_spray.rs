@@ -4,6 +4,7 @@ use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use super::relay_module;
 use crate::{
+    config::ConfigFile,
     helper::ErrorLogFormat,
     log,
     plugins::{
@@ -20,7 +21,7 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<manager::RelayManager>()
             .init_resource::<Manager>()
-            .insert_resource(self.config.clone())
+            .insert_resource(self.config)
             .add_plugins((
                 StatusMessage::<Manager, action::AeroponicSprayerStatus>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)),
@@ -31,7 +32,7 @@ impl bevy_app::Plugin for Plugin {
     }
 }
 
-#[derive(Debug, Clone, Resource)]
+#[derive(Debug, Clone, Copy, Resource, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     pub spray_duration: std::time::Duration,
     pub spray_interval: std::time::Duration,
@@ -160,6 +161,10 @@ impl mqtt::add_on::action_message::PublishStatus<action::AeroponicSprayerStatus>
             next_spray_time,
         }
     }
+}
+impl ConfigFile for Manager {
+    const FILENAME: &'static str = "aeroponic_spray";
+    type Config = Config;
 }
 
 pub mod action {

@@ -5,34 +5,40 @@ use bevy_ecs::system::{Commands, Res, Resource};
 use bevy_internal::prelude::DetectChanges;
 use bevy_tokio_tasks::TokioTasksRuntime;
 
-use crate::{helper::ToBytes, log, mqtt, plugins};
+use crate::{config::ConfigFile, helper::ToBytes, log, mqtt, plugins};
 
-pub struct Plugin;
+pub struct Plugin {
+    pub config: Config,
+}
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<plugins::manager::RelayManager>()
             .init_resource::<Manager>()
+            .insert_resource(self.config)
             .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
             .add_systems(Startup, (Manager::register_home_assistant,))
             .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
     }
 }
 
-#[derive(Debug, Resource, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Resource, Clone, Copy)]
+pub struct Config {
+    pub unit_time: Duration,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            unit_time: Duration::from_secs(3),
+        }
+    }
+}
+
+#[derive(Debug, Resource, serde::Deserialize, serde::Serialize, Default)]
 pub struct Manager {
     ph_down_state: bool,
     ph_up_state: bool,
     #[serde(skip)]
-    unit_time: Duration,
-}
-impl Default for Manager {
-    fn default() -> Self {
-        Self {
-            ph_down_state: Default::default(),
-            ph_up_state: Default::default(),
-            unit_time: Duration::from_secs(3),
-        }
-    }
+    config: Config,
 }
 impl Manager {
     fn register_home_assistant(mut cmd: Commands) {
@@ -109,7 +115,7 @@ impl Manager {
             return;
         }
 
-        let dur = this.unit_time;
+        let dur = this.config.unit_time;
 
         rt.spawn_background_task(move |mut ctx| async move {
             ctx.run_on_main_thread(|ctx| {
@@ -165,7 +171,7 @@ impl Manager {
             return;
         }
 
-        let dur = this.unit_time;
+        let dur = this.config.unit_time;
 
         rt.spawn_background_task(move |mut ctx| async move {
             ctx.run_on_main_thread(|ctx| {
@@ -222,6 +228,10 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
         state.update_state(request);
         Some(action::Response(Ok("updated ph dosing state".into())))
     }
+}
+impl ConfigFile for Manager {
+    const FILENAME: &'static str = "ph_dosing";
+    type Config = Config;
 }
 
 mod action {
