@@ -9,7 +9,7 @@ use bevy_ecs::system::Resource;
 use bevy_ecs::{event::Event, system::Res};
 use bevy_internal::prelude::{Deref, DerefMut};
 
-use crate::{AtomicFixedBytes, AtomicFixedString};
+use crate::{log, AtomicFixedBytes, AtomicFixedString};
 
 #[derive(Resource, Deref, DerefMut)]
 struct ChannelReceiver<T>(Mutex<Receiver<T>>);
@@ -46,7 +46,7 @@ fn channel_to_event<T: 'static + Send + Sync + Event>(
 pub mod serde_time {
     use serde::Deserialize;
 
-    use super::ToDuration;
+    use super::{log, ToDuration};
 
     pub fn serialize_offset_datetime_as_local<S>(
         offset_datetime: &time::OffsetDateTime,
@@ -70,7 +70,13 @@ pub mod serde_time {
         D: serde::Deserializer<'de>,
     {
         let data = String::deserialize(deserializer)?;
-        Ok(time::OffsetDateTime::parse(&data, &crate::time_log_fmt()).unwrap())
+        Ok(time::OffsetDateTime::parse(&data, &crate::time_log_fmt())
+            .map_err(|e| {
+                log::error!(
+                    "error deserializing datetime, reason: {e}; expected format \"hh:mm:ss.sss\""
+                )
+            })
+            .unwrap())
     }
 
     const TIME_FORMAT: &[time::format_description::BorrowedFormatItem<'_>] =
@@ -88,7 +94,13 @@ pub mod serde_time {
         D: serde::Deserializer<'de>,
     {
         let data = String::deserialize(deserializer)?;
-        Ok(time::Time::parse(&data, TIME_FORMAT).unwrap())
+        Ok(time::Time::parse(&data, TIME_FORMAT)
+            .map_err(|e| {
+                log::error!(
+                    "error deserializing time, reason: {e}; expected format \"hh:mm:ss.sss\""
+                )
+            })
+            .unwrap())
     }
 
     pub fn serialize_duration_formatted<S>(
@@ -110,7 +122,14 @@ pub mod serde_time {
         D: serde::Deserializer<'de>,
     {
         let data = String::deserialize(deserializer)?;
-        Ok(time::Time::parse(&data, TIME_FORMAT).unwrap().to_duration())
+        Ok(time::Time::parse(&data, TIME_FORMAT)
+            .map_err(|e| {
+                log::error!(
+                    "error deserializing duration, reason: {e}; expected format \"hh:mm:ss.sss\""
+                )
+            })
+            .unwrap()
+            .to_duration())
     }
 }
 
