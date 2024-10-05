@@ -43,8 +43,10 @@ fn channel_to_event<T: 'static + Send + Sync + Event>(
     writer.send_batch(events.try_iter());
 }
 
-pub mod time {
+pub mod serde_time {
     use serde::Deserialize;
+
+    use super::ToDuration;
 
     pub fn serialize_offset_datetime_as_local<S>(
         offset_datetime: &time::OffsetDateTime,
@@ -70,6 +72,46 @@ pub mod time {
         let data = String::deserialize(deserializer)?;
         Ok(time::OffsetDateTime::parse(&data, &crate::time_log_fmt()).unwrap())
     }
+
+    const TIME_FORMAT: &[time::format_description::BorrowedFormatItem<'_>] =
+        time::macros::format_description!("[hour]:[minute]:[second].[subsecond digits:3]");
+
+    pub fn serialize_time<S>(time: &time::Time, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&time.format(TIME_FORMAT).unwrap())
+    }
+
+    pub fn deserialize_time<'de, D>(deserializer: D) -> Result<time::Time, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = String::deserialize(deserializer)?;
+        Ok(time::Time::parse(&data, TIME_FORMAT).unwrap())
+    }
+
+    pub fn serialize_duration_formatted<S>(
+        duration: &std::time::Duration,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let start = time::macros::time!(00:00:00.000);
+        let dur = start + *duration;
+        serializer.serialize_str(&dur.format(TIME_FORMAT).unwrap())
+    }
+
+    pub fn deserialize_duration_formatted<'de, D>(
+        deserializer: D,
+    ) -> Result<std::time::Duration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = String::deserialize(deserializer)?;
+        Ok(time::Time::parse(&data, TIME_FORMAT).unwrap().to_duration())
+    }
 }
 
 pub trait ErrorLogFormat {
@@ -89,5 +131,17 @@ impl ToBytes for serde_json::Value {
         let mut bytes: Vec<u8> = Vec::new();
         serde_json::to_writer(&mut bytes, self).unwrap();
         bytes.into()
+    }
+}
+
+pub trait ToDuration {
+    fn to_duration(&self) -> std::time::Duration;
+}
+impl ToDuration for time::Time {
+    fn to_duration(&self) -> std::time::Duration {
+        let (h, m, s, ms) = self.as_hms_milli();
+        std::time::Duration::from_secs_f32(
+            (h as f32 * 60.0 * 60.0) + (m as f32 * 60.0) + (s as f32 + (ms as f32 / 1000.0)),
+        )
     }
 }

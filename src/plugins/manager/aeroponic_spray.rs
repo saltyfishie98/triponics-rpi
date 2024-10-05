@@ -50,8 +50,8 @@ impl Default for Config {
 pub struct Manager {
     sprayer_state: bool,
     #[serde(
-        serialize_with = "crate::helper::time::serialize_offset_datetime_as_local",
-        deserialize_with = "crate::helper::time::deserialize_offset_datetime_as_local"
+        serialize_with = "crate::helper::serde_time::serialize_offset_datetime_as_local",
+        deserialize_with = "crate::helper::serde_time::deserialize_offset_datetime_as_local"
     )]
     next_spray_time: time::OffsetDateTime,
 }

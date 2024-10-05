@@ -1,11 +1,36 @@
+use std::time::Duration;
+
 use bevy_app::Update;
 use bevy_ecs::system::{Res, ResMut, Resource};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use crate::{
+    config::ConfigFile,
     constants, log,
     plugins::{manager, mqtt, state_file},
 };
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct Config {
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_time",
+        deserialize_with = "crate::helper::serde_time::deserialize_time"
+    )]
+    start_time: time::Time,
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
+    duration: Duration,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            start_time: time::macros::time!(7:00 am),
+            duration: Duration::from_secs(12 * 60 * 60),
+        }
+    }
+}
 
 pub struct Plugin;
 impl bevy_app::Plugin for Plugin {
@@ -91,6 +116,10 @@ impl state_file::SaveState for Manager {
     fn save<'de>(&self) -> Self::State<'de> {
         Self { state: self.state }
     }
+}
+impl ConfigFile for Manager {
+    const FILENAME: &'static str = "growlight";
+    type Config = Config;
 }
 
 pub mod action {

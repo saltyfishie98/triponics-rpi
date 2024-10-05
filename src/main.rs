@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
     let mqtt_config = mqtt::Plugin::load_config().unwrap();
     let aeroponic_config = manager::AeroponicSprayManager::load_config().unwrap();
     let ph_dosing_config = manager::PhDosingManager::load_config().unwrap();
+    let _growlight_config = manager::GrowlightManager::load_config().unwrap();
 
     App::new()
         .add_plugins((
