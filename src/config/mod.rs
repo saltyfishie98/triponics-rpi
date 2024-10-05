@@ -19,10 +19,13 @@ pub trait ConfigFile {
                 .unwrap();
 
             file.write_all(
-                serde_json::to_string_pretty(
-                    &serde_json::to_value(Self::Config::default()).unwrap(),
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(
+                        &serde_json::to_value(Self::Config::default()).unwrap(),
+                    )
+                    .unwrap()
                 )
-                .unwrap()
                 .as_bytes(),
             )
             .unwrap();
