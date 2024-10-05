@@ -15,7 +15,10 @@ use globals::*;
 use std::time::Duration;
 
 use bevy_app::{prelude::*, ScheduleRunnerPlugin};
-use bevy_ecs::system::ResMut;
+use bevy_ecs::{
+    event::EventReader,
+    system::{Commands, ResMut, Resource},
+};
 use bevy_internal::MinimalPlugins;
 use bevy_tokio_tasks::{TokioTasksPlugin, TokioTasksRuntime};
 use clap::Parser;
@@ -63,7 +66,14 @@ fn main() -> anyhow::Result<()> {
                 config: aeroponic_config,
             },
         ))
-        .add_systems(Startup, (local::exit_task,))
+        .add_systems(
+            Startup,
+            (
+                local::ExitMsg::setup, //
+                local::exit_task,
+            ),
+        )
+        .add_systems(Update, (local::ExitMsg::listen,))
         .run();
 
     log::info!("bye!");
@@ -72,10 +82,49 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod local {
+    use bevy_ecs::world::World;
     use helper::ErrorLogFormat;
     use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
     use super::*;
+
+    #[derive(Resource)]
+    struct ExitTx(tokio::sync::oneshot::Sender<()>);
+    #[derive(Resource)]
+    struct ExitRx(tokio::sync::oneshot::Receiver<()>);
+
+    #[derive(Debug, serde::Deserialize, serde::Serialize)]
+    pub struct ExitMsg {}
+    impl mqtt::add_on::action_message::MessageImpl for ExitMsg {
+        const PREFIX: &'static str = crate::constants::mqtt_prefix::REQUEST;
+        const PROJECT: &'static str = crate::constants::project::NAME;
+        const GROUP: &'static str = "exit";
+        const DEVICE: &'static str = crate::constants::project::DEVICE;
+        const QOS: mqtt::Qos = mqtt::Qos::_1;
+    }
+    impl ExitMsg {
+        pub fn setup(mut cmd: Commands) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            cmd.insert_resource(ExitTx(tx));
+            cmd.insert_resource(ExitRx(rx));
+            cmd.spawn(
+                mqtt::message::Subscriptions::new()
+                    .with_msg::<ExitMsg>()
+                    .finalize(),
+            );
+        }
+
+        pub fn listen(mut ev: EventReader<mqtt::event::IncomingMessage>, mut cmd: Commands) {
+            while let Some(msg) = ev.read().next() {
+                if msg.get::<Self>().is_some() {
+                    cmd.add(|world: &mut World| {
+                        let ExitTx(tx) = world.remove_resource::<ExitTx>().unwrap();
+                        tx.send(()).unwrap();
+                    });
+                }
+            }
+        }
+    }
 
     pub fn try_init() {
         let args = Args::parse();
@@ -150,6 +199,10 @@ mod local {
 
     pub fn exit_task(rt: ResMut<TokioTasksRuntime>) {
         rt.spawn_background_task(|mut ctx| async move {
+            let ExitRx(rx) = ctx
+                .run_on_main_thread(move |ctx| ctx.world.remove_resource::<ExitRx>().unwrap())
+                .await;
+
             let mut sigint =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
 
@@ -157,6 +210,7 @@ mod local {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
 
             tokio::select! {
+                _ = rx => {}
                 _ = sigint.recv() => {}
                 _ = sigterm.recv() => {}
             }
