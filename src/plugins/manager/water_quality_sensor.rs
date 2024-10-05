@@ -118,7 +118,8 @@ impl Manager {
                     name: "Sampled Time",
                     icon: "mdi:clock",
                     state_topic: "status/triponics/water_quality_sensor/0",
-                    value_template: "{{ as_datetime(value_json.timestamp) | as_local }}",
+                    value_template:
+                        "{{ (as_datetime(value_json.timestamp) | as_local | string )[:19] }}",
                     unit_of_measurement: None,
                     device: Device {
                         identifiers: &["water_quality_sensor"],

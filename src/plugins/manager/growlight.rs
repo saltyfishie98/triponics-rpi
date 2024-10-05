@@ -105,7 +105,8 @@ impl Manager {
                     name: "On Time",
                     icon: "mdi:clock",
                     state_topic: "status/triponics/growlight/0",
-                    value_template: "{{ as_datetime(value_json.start_time) | as_local }}",
+                    value_template:
+                        "{{ (as_datetime(value_json.start_time) | as_local | string)[:19] }}",
                     device: mqtt::add_on::home_assistant::Device {
                         identifiers: &["growlight"],
                         name: "Growlight",
@@ -125,7 +126,8 @@ impl Manager {
                     name: "Off Time",
                     icon: "mdi:clock-outline",
                     state_topic: "status/triponics/growlight/0",
-                    value_template: "{{ as_datetime(value_json.stop_time) | as_local }}",
+                    value_template:
+                        "{{ (as_datetime(value_json.stop_time) | as_local | string)[:19] }}",
                     device: mqtt::add_on::home_assistant::Device {
                         identifiers: &["growlight"],
                         name: "Growlight",
