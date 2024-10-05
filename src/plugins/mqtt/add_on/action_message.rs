@@ -3,8 +3,8 @@ use std::{marker::PhantomData, sync::RwLock};
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::{Event, EventReader},
-    schedule::{Condition, IntoSystemConfigs, NodeConfigs, SystemConfigs},
-    system::{BoxedSystem, Commands, In, IntoSystem, Res, ResMut, Resource, RunSystemOnce, System},
+    schedule::{Condition, IntoSystemConfigs, SystemConfigs},
+    system::{Commands, In, IntoSystem, ResMut, Resource, RunSystemOnce, System},
     world::World,
 };
 

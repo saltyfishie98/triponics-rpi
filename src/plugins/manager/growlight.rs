@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use bevy_app::Update;
-use bevy_ecs::system::{IntoSystem, Res, ResMut, Resource};
+use bevy_ecs::{
+    schedule::IntoSystemConfigs,
+    system::{IntoSystem, Local, Res, ResMut, Resource},
+};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use crate::{
@@ -37,17 +40,36 @@ pub struct Plugin {
 }
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
+        use mqtt::add_on::action_message::{RequestMessage, StatusMessage};
+
         app.init_resource::<manager::RelayManager>()
             .init_resource::<Manager>()
             .insert_resource(StartTime(local::datetime_today(&self.config.start_time)))
-            .insert_resource(EndTime(local::datetime_today(&(self.config.start_time + self.config.on_duration))))
+            .insert_resource(EndTime(local::datetime_today(
+                &(self.config.start_time + self.config.on_duration),
+            )))
             .add_plugins((
-                mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
-                mqtt::add_on::action_message::StatusMessage::<Manager, action::StatusMqtt>::publish_condition(
-                    on_timer(std::time::Duration::from_secs(1)),
+                RequestMessage::<Manager>::new(),
+                StatusMessage::<Manager, action::StatusMqtt>::publish_condition(
+                    on_timer(std::time::Duration::from_secs(1)), //
                 ),
             ))
-            .add_systems(Update, Manager::update);
+            .add_systems(
+                Update,
+                (
+                    Manager::update,
+                    Manager::trigger_on,
+                    Manager::trigger_off,
+                    Manager::update_datetime.run_if(
+                        |start_time: Res<StartTime>| -> bool {
+                            time::OffsetDateTime::now_utc()
+                                .to_offset(*crate::timezone_offset())
+                                .date()
+                                > start_time.0.date()
+                        }, // new day
+                    ),
+                ),
+            );
     }
 }
 
@@ -75,6 +97,47 @@ impl Manager {
                 log::warn!("[growlight] failed to update relay manager, reason:\n{e:#?}\n");
             }
         }
+    }
+
+    fn trigger_on(
+        mut this: ResMut<Manager>,
+        start_time: Res<StartTime>,
+        end_time: Res<EndTime>,
+        mut pending_update: Local<bool>,
+    ) {
+        if start_time.is_changed() {
+            *pending_update = true;
+        }
+
+        if time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()) >= start_time.0
+            && time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()) < end_time.0
+            && *pending_update
+        {
+            this.turn_on();
+            *pending_update = false;
+        }
+    }
+
+    fn trigger_off(
+        mut this: ResMut<Manager>,
+        end_time: Res<EndTime>,
+        mut pending_update: Local<bool>,
+    ) {
+        if end_time.is_changed() {
+            *pending_update = true;
+        }
+
+        if time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()) >= end_time.0
+            && *pending_update
+        {
+            this.turn_off();
+            *pending_update = false;
+        }
+    }
+
+    fn update_datetime(mut start_time: ResMut<StartTime>, mut end_time: ResMut<EndTime>) {
+        *start_time = StartTime(local::datetime_today(&start_time.0.time()));
+        *end_time = EndTime(local::datetime_today(&end_time.0.time()));
     }
 }
 impl mqtt::add_on::action_message::RequestHandler for Manager {
@@ -106,7 +169,9 @@ impl mqtt::add_on::action_message::PublishStatus<action::StatusMqtt> for Manager
             action::StatusMqtt {
                 state: this.state,
                 start_time: start_time.0,
-                end_time: end_time.0,
+                on_duration: std::time::Duration::from_secs_f32(
+                    (end_time.0 - start_time.0).as_seconds_f32(),
+                ),
             }
         }
 
@@ -139,10 +204,10 @@ pub mod action {
         )]
         pub start_time: time::OffsetDateTime,
         #[serde(
-            serialize_with = "crate::helper::serde_time::serialize_offset_datetime_as_local",
-            deserialize_with = "crate::helper::serde_time::deserialize_offset_datetime_as_local"
+            serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+            deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
         )]
-        pub end_time: time::OffsetDateTime,
+        pub on_duration: std::time::Duration,
     }
     impl mqtt::add_on::action_message::MessageImpl for StatusMqtt {
         const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
