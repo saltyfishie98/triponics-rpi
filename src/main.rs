@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     let mqtt_config = mqtt::Plugin::load_config().unwrap();
     let aeroponic_config = manager::AeroponicSprayManager::load_config().unwrap();
     let ph_dosing_config = manager::PhDosingManager::load_config().unwrap();
-    let _growlight_config = manager::GrowlightManager::load_config().unwrap();
+    let growlight_config = manager::GrowlightManager::load_config().unwrap();
 
     App::new()
         .add_plugins((
@@ -52,8 +52,10 @@ fn main() -> anyhow::Result<()> {
         ))
         .add_plugins((
             manager::relay_module::Plugin,
-            manager::growlight::Plugin,
             manager::water_quality_sensor::Plugin,
+            manager::growlight::Plugin {
+                config: growlight_config,
+            },
             manager::ph_dosing::Plugin {
                 config: ph_dosing_config,
             },

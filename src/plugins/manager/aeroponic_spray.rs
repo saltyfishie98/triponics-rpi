@@ -34,7 +34,15 @@ impl bevy_app::Plugin for Plugin {
 
 #[derive(Debug, Clone, Copy, Resource, serde::Serialize, serde::Deserialize)]
 pub struct Config {
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
     pub spray_duration: std::time::Duration,
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
     pub spray_interval: std::time::Duration,
 }
 impl Default for Config {

@@ -65,7 +65,7 @@ where
     }
 }
 
-pub struct StatusMessage<T, Msg>
+pub struct StatusMessage<T, Msg = T>
 where
     T: PublishStatus<Msg>,
     Msg: MessageImpl,

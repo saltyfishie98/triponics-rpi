@@ -23,6 +23,10 @@ impl bevy_app::Plugin for Plugin {
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Resource, Clone, Copy)]
 pub struct Config {
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
     pub unit_time: Duration,
     pub ph_setpoint: f32,
     pub ph_daily_delta: f32,

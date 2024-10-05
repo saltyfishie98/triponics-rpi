@@ -6,13 +6,16 @@ use crate::AtomicFixedString;
 
 use super::PersistenceType;
 
-#[serde_with::serde_as]
 #[derive(Clone, Resource, serde::Deserialize, serde::Serialize, Debug)]
 pub struct ClientCreateOptions {
     pub server_uri: AtomicFixedString,
     pub client_id: AtomicFixedString,
     pub cache_dir_path: PathBuf,
     pub incoming_msg_buffer_size: usize,
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
     pub restart_interval: Duration,
 
     pub max_buffered_messages: Option<i32>,
@@ -108,7 +111,9 @@ impl From<&ClientCreateOptions> for paho_mqtt::CreateOptions {
 pub struct ClientConnectOptions {
     pub clean_start: Option<bool>,
     pub max_inflight: Option<i32>,
+    #[serde_as(as = "Option<AsDuration>")]
     pub connect_timeout: Option<Duration>,
+    #[serde_as(as = "Option<AsDuration>")]
     pub keep_alive_interval: Option<Duration>,
 }
 impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
@@ -139,5 +144,23 @@ impl From<&ClientConnectOptions> for paho_mqtt::ConnectOptions {
         }
 
         builder.finalize()
+    }
+}
+
+struct AsDuration;
+impl serde_with::SerializeAs<Duration> for AsDuration {
+    fn serialize_as<S>(source: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        crate::helper::serde_time::serialize_duration_formatted(source, serializer)
+    }
+}
+impl<'de> serde_with::DeserializeAs<'de, Duration> for AsDuration {
+    fn deserialize_as<D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        crate::helper::serde_time::deserialize_duration_formatted(deserializer)
     }
 }
