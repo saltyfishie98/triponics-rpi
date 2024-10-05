@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy_app::{Startup, Update};
-use bevy_ecs::system::{Commands, ResMut, Resource};
+use bevy_ecs::system::{Commands, IntoSystem, Res, ResMut, Resource};
 use bevy_internal::time::common_conditions::on_timer;
 use bevy_tokio_tasks::TokioTasksRuntime;
 use tokio_modbus::prelude::*;
@@ -202,15 +202,23 @@ impl Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus<action::Database> for Manager {
-    fn get_status(&self) -> action::Database {
-        let out = action::Database(self.get_data().into());
-        log::info!("new water quality entry: {out:?}");
-        out
+    fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::Database> {
+        fn func(this: Res<Manager>) -> action::Database {
+            let out = action::Database(this.get_data().into());
+            log::info!("new water quality entry: {out:?}");
+            out
+        }
+
+        IntoSystem::into_system(func)
     }
 }
 impl mqtt::add_on::action_message::PublishStatus<action::MqttStatus> for Manager {
-    fn get_status(&self) -> action::MqttStatus {
-        action::MqttStatus(self.get_data().into())
+    fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::MqttStatus> {
+        fn func(this: Res<Manager>) -> action::MqttStatus {
+            action::MqttStatus(this.get_data().into())
+        }
+
+        IntoSystem::into_system(func)
     }
 }
 

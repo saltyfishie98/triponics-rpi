@@ -3,8 +3,9 @@ use std::{marker::PhantomData, sync::RwLock};
 use bevy_app::{Plugin, Startup, Update};
 use bevy_ecs::{
     event::{Event, EventReader},
-    schedule::{Condition, IntoSystemConfigs, SystemConfigs},
-    system::{Commands, IntoSystem, Res, ResMut, Resource},
+    schedule::{Condition, IntoSystemConfigs, NodeConfigs, SystemConfigs},
+    system::{BoxedSystem, Commands, In, IntoSystem, Res, ResMut, Resource, RunSystemOnce, System},
+    world::World,
 };
 
 #[allow(unused_imports)]
@@ -41,11 +42,12 @@ where
     }
 }
 
-pub trait PublishStatus<T: MessageImpl>
+pub trait PublishStatus<S: MessageImpl>
 where
     Self: Resource + Sized + Send + Sync + 'static,
 {
-    fn get_status(&self) -> T;
+    // fn get_status(&self) -> S;
+    fn query_state() -> impl System<In = (), Out = S>;
 }
 
 pub trait RequestHandler
@@ -91,15 +93,19 @@ where
         }
     }
 
-    fn publish_status(mut cmd: Commands, maybe_state: Option<Res<T>>) {
-        if let Some(state) = maybe_state {
-            cmd.spawn(message::Message {
-                topic: Msg::topic(),
-                payload: state.get_status().to_payload(),
-                qos: Msg::qos(),
-                retained: false,
-            });
-        }
+    fn publish_status(mut cmd: Commands) {
+        cmd.add(|world: &mut World| {
+            fn spawn_msg<M: MessageImpl>(msg: In<M>, mut cmd: Commands) {
+                cmd.spawn(message::Message {
+                    topic: M::topic(),
+                    payload: msg.to_payload(),
+                    qos: M::qos(),
+                    retained: false,
+                });
+            }
+
+            world.run_system_once(T::query_state().pipe(spawn_msg::<Msg>));
+        });
     }
 }
 impl<T, Msg> Plugin for StatusMessage<T, Msg>

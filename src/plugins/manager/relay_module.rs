@@ -1,5 +1,5 @@
 use bevy_app::Startup;
-use bevy_ecs::system::{Commands, Resource};
+use bevy_ecs::system::{Commands, IntoSystem, Res, Resource};
 use bevy_internal::time::common_conditions::on_timer;
 use relay::Relay;
 
@@ -321,15 +321,19 @@ impl mqtt::add_on::action_message::RequestHandler for Manager {
     }
 }
 impl mqtt::add_on::action_message::PublishStatus<action::RelayStatus> for Manager {
-    fn get_status(&self) -> action::RelayStatus {
-        action::RelayStatus {
-            relay_1: self.relay_1.get_state().into(),
-            relay_2: self.relay_2.get_state().into(),
-            relay_3: self.relay_3.get_state().into(),
-            relay_6: self.relay_6.get_state().into(),
-            relay_7: self.relay_7.get_state().into(),
-            relay_8: self.relay_8.get_state().into(),
+    fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::RelayStatus> {
+        fn func(this: Res<Manager>) -> action::RelayStatus {
+            action::RelayStatus {
+                relay_1: this.relay_1.get_state().into(),
+                relay_2: this.relay_2.get_state().into(),
+                relay_3: this.relay_3.get_state().into(),
+                relay_6: this.relay_6.get_state().into(),
+                relay_7: this.relay_7.get_state().into(),
+                relay_8: this.relay_8.get_state().into(),
+            }
         }
+
+        IntoSystem::into_system(func)
     }
 }
 
