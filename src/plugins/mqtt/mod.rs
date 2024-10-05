@@ -2,6 +2,7 @@ pub mod add_on;
 pub mod event;
 
 mod options;
+use message::MessageInfo;
 pub use options::*;
 
 mod wrapper;
@@ -24,7 +25,7 @@ use bevy_tokio_tasks::TokioTasksRuntime;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::{config::ConfigFile, helper::AsyncEventExt, log, AtomicFixedString};
+use crate::{config::ConfigFile, constants, helper::AsyncEventExt, log, AtomicFixedString};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct Config {
@@ -139,13 +140,28 @@ impl Plugin {
             let ping_interval = Duration::from_secs_f32(keep_alive_interval.as_secs_f32() * 0.6);
             log::debug!("[mqtt] ping interval: {}", ping_interval.as_secs_f32());
 
+            #[derive(Debug, serde::Serialize, serde::Deserialize)]
+            struct Ping {
+                timestamp: String,
+            }
+            impl Ping {
+                fn new() -> Self {
+                    Self {
+                        timestamp: time::OffsetDateTime::now_utc().unix_timestamp().to_string(),
+                    }
+                }
+            }
+            impl add_on::action_message::MessageImpl for Ping {
+                const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
+                const PROJECT: &'static str = constants::project::NAME;
+                const GROUP: &'static str = "ping";
+                const DEVICE: &'static str = constants::project::DEVICE;
+                const QOS: Qos = Qos::_1;
+            }
+
             loop {
                 log::trace!("[mqtt] ping!");
-                client.publish(paho_mqtt::Message::new(
-                    format!("{}/ping", client.client_id()),
-                    [0u8],
-                    paho_mqtt::QOS_0,
-                ));
+                client.publish(Ping::new().make().into());
                 tokio::time::sleep(ping_interval).await;
             }
         }
