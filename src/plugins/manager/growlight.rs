@@ -1,14 +1,15 @@
 use std::time::Duration;
 
-use bevy_app::Update;
+use bevy_app::{Startup, Update};
 use bevy_ecs::{
     schedule::IntoSystemConfigs,
-    system::{IntoSystem, Local, Res, ResMut, Resource},
+    system::{Commands, IntoSystem, Local, Res, ResMut, Resource},
 };
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use crate::{
     config::ConfigFile,
+    helper::ToBytes,
     log,
     plugins::{manager, mqtt},
 };
@@ -54,6 +55,7 @@ impl bevy_app::Plugin for Plugin {
                     on_timer(std::time::Duration::from_secs(1)), //
                 ),
             ))
+            .add_systems(Startup, Manager::setup)
             .add_systems(
                 Update,
                 (
@@ -84,6 +86,77 @@ impl Manager {
 
     pub fn turn_off(&mut self) {
         self.state = false;
+    }
+
+    fn setup(mut cmd: Commands) {
+        #[derive(serde::Serialize)]
+        struct Config {
+            name: &'static str,
+            icon: &'static str,
+            state_topic: &'static str,
+            value_template: &'static str,
+            device: mqtt::add_on::home_assistant::Device,
+        }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/on_time/growlight/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "On Time",
+                    icon: "mdi:clock",
+                    state_topic: "status/triponics/growlight/0",
+                    value_template: "{{ as_datetime(value_json.start_time) | as_local }}",
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["growlight"],
+                        name: "Growlight",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/off_time/growlight/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Off Time",
+                    icon: "mdi:clock-outline",
+                    state_topic: "status/triponics/growlight/0",
+                    value_template: "{{ as_datetime(value_json.stop_time) | as_local }}",
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["growlight"],
+                        name: "Growlight",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/auto_state/growlight/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Auto State",
+                    icon: "mdi:lightbulb-auto",
+                    state_topic: "status/triponics/growlight/0",
+                    value_template: "{{ \"ON\" if value_json.state else \"OFF\"}}",
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["growlight"],
+                        name: "Growlight",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
     }
 
     fn update(this: Res<Manager>, mut relay_manager: ResMut<manager::RelayManager>) {
@@ -168,10 +241,8 @@ impl mqtt::add_on::action_message::PublishStatus<action::StatusMqtt> for Manager
         ) -> action::StatusMqtt {
             action::StatusMqtt {
                 state: this.state,
-                start_time: start_time.0,
-                on_duration: std::time::Duration::from_secs_f32(
-                    (end_time.0 - start_time.0).as_seconds_f32(),
-                ),
+                start_time: start_time.0.unix_timestamp(),
+                stop_time: end_time.0.unix_timestamp(),
             }
         }
 
@@ -198,16 +269,8 @@ pub mod action {
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
     pub struct StatusMqtt {
         pub state: bool,
-        #[serde(
-            serialize_with = "crate::helper::serde_time::serialize_offset_datetime_as_local",
-            deserialize_with = "crate::helper::serde_time::deserialize_offset_datetime_as_local"
-        )]
-        pub start_time: time::OffsetDateTime,
-        #[serde(
-            serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
-            deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
-        )]
-        pub on_duration: std::time::Duration,
+        pub start_time: i64,
+        pub stop_time: i64,
     }
     impl mqtt::add_on::action_message::MessageImpl for StatusMqtt {
         const PREFIX: &'static str = constants::mqtt_prefix::STATUS;
