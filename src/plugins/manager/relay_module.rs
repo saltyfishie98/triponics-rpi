@@ -192,7 +192,7 @@ impl Manager {
         });
 
         cmd.spawn(mqtt::message::Message {
-            topic: "homeassistant/switch/relay_4/relay_module/config".into(),
+            topic: "homeassistant/switch/relay_6/relay_module/config".into(),
             payload: {
                 serde_json::to_value(HAConfig {
                     name: "Relay 6 (Pump pH Down)",
@@ -218,7 +218,7 @@ impl Manager {
         });
 
         cmd.spawn(mqtt::message::Message {
-            topic: "homeassistant/switch/relay_5/relay_module/config".into(),
+            topic: "homeassistant/switch/relay_7/relay_module/config".into(),
             payload: {
                 serde_json::to_value(HAConfig {
                     name: "Relay 7 (Pump pH Up)",
