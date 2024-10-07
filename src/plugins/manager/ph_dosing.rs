@@ -65,6 +65,14 @@ impl Manager {
             device: mqtt::add_on::home_assistant::Device,
         }
 
+        #[derive(serde::Serialize)]
+        struct State {
+            name: &'static str,
+            state_topic: &'static str,
+            value_template: &'static str,
+            device: mqtt::add_on::home_assistant::Device,
+        }
+
         cmd.spawn(mqtt::message::Message {
             topic: "homeassistant/button/down/ph_dosing/config".into(),
             payload: {
@@ -93,6 +101,44 @@ impl Manager {
                     command_topic: "request/triponics/ph_dosing/0",
                     command_template: "{ \"ph_up\" : {{value | lower}} }",
                     payload_press: true,
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["triponics-ph-dosing"],
+                        name: "Dosing Pumps",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/ph_down_pump/ph_dosing/config".into(),
+            payload: {
+                serde_json::to_value(State {
+                    name: "Pump pH Down",
+                    state_topic: "status/triponics/relay_module/0",
+                    value_template: "{{ \"ON\" if value_json.relay_6 else \"OFF\"}}",
+                    device: mqtt::add_on::home_assistant::Device {
+                        identifiers: &["triponics-ph-dosing"],
+                        name: "Dosing Pumps",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/ph_up_pump/ph_dosing/config".into(),
+            payload: {
+                serde_json::to_value(State {
+                    name: "Pump pH Up",
+                    state_topic: "status/triponics/relay_module/0",
+                    value_template: "{{ \"ON\" if value_json.relay_7 else \"OFF\"}}",
                     device: mqtt::add_on::home_assistant::Device {
                         identifiers: &["triponics-ph-dosing"],
                         name: "Dosing Pumps",
