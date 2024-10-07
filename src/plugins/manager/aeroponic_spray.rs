@@ -20,8 +20,7 @@ pub struct Plugin {
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<manager::RelayManager>()
-            .init_resource::<Manager>()
-            .insert_resource(self.config)
+            .insert_resource(Manager::new(self.config))
             .add_plugins((
                 StatusMessage::<Manager, action::AeroponicSprayerStatus>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)),
@@ -32,7 +31,7 @@ impl bevy_app::Plugin for Plugin {
     }
 }
 
-#[derive(Debug, Clone, Copy, Resource, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Config {
     #[serde(
         serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
@@ -62,11 +61,30 @@ pub struct Manager {
         deserialize_with = "crate::helper::serde_time::deserialize_offset_datetime_as_local"
     )]
     next_spray_time: time::OffsetDateTime,
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
+    spray_duration: std::time::Duration,
+    #[serde(
+        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
+        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
+    )]
+    spray_interval: std::time::Duration,
 }
 impl Manager {
     pub fn update_state(&mut self, new_state: bool) {
         self.sprayer_state = new_state;
         log::trace!("[aeroponic_spray] state updated -> {:?}", new_state);
+    }
+
+    fn new(config: Config) -> Self {
+        Self {
+            sprayer_state: false,
+            next_spray_time: time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()),
+            spray_duration: config.spray_duration,
+            spray_interval: config.spray_interval,
+        }
     }
 
     fn update_switch(mut relay_manager: ResMut<relay_module::Manager>, this: Res<Self>) {
@@ -85,18 +103,14 @@ impl Manager {
         }
     }
 
-    fn watcher(
-        mut this: ResMut<Self>,
-        mut maybe_end_time: Local<Option<time::OffsetDateTime>>,
-        config: Res<Config>,
-    ) {
+    fn watcher(mut this: ResMut<Self>, mut maybe_end_time: Local<Option<time::OffsetDateTime>>) {
         let now = time::OffsetDateTime::now_utc();
 
         if let Some(end_time) = *maybe_end_time {
             if end_time <= now {
                 this.update_state(false);
                 *maybe_end_time = None;
-                this.next_spray_time = now + config.spray_interval;
+                this.next_spray_time = now + this.spray_interval;
 
                 let next_spray_local_time = {
                     let o = this.next_spray_time;
@@ -114,7 +128,7 @@ impl Manager {
         }
 
         if this.next_spray_time <= now && maybe_end_time.is_none() {
-            let end_time = now + config.spray_duration;
+            let end_time = now + this.spray_duration;
 
             this.update_state(true);
             *maybe_end_time = Some(end_time);
@@ -129,14 +143,6 @@ impl Manager {
         }
     }
 }
-impl Default for Manager {
-    fn default() -> Self {
-        Self {
-            sprayer_state: Default::default(),
-            next_spray_time: time::OffsetDateTime::now_utc().to_offset(*crate::timezone_offset()),
-        }
-    }
-}
 impl state_file::SaveState for Manager {
     type State<'de> = Self;
 
@@ -147,9 +153,18 @@ impl state_file::SaveState for Manager {
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
+        let Self {
+            sprayer_state,
+            next_spray_time,
+            spray_duration,
+            spray_interval,
+        } = *self;
+
         Self {
-            sprayer_state: self.sprayer_state,
-            next_spray_time: self.next_spray_time,
+            sprayer_state,
+            next_spray_time,
+            spray_duration,
+            spray_interval,
         }
     }
 }

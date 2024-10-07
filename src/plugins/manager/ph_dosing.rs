@@ -13,15 +13,14 @@ pub struct Plugin {
 impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<plugins::manager::RelayManager>()
-            .init_resource::<Manager>()
-            .insert_resource(self.config)
+            .insert_resource(Manager::new(self.config))
             .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
             .add_systems(Startup, (Manager::register_home_assistant,))
             .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
     }
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize, Resource, Clone, Copy)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, Copy)]
 pub struct Config {
     #[serde(
         serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
@@ -41,14 +40,21 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Resource, serde::Deserialize, serde::Serialize, Default)]
+#[derive(Debug, Resource)]
 pub struct Manager {
     ph_down_state: bool,
     ph_up_state: bool,
-    #[serde(skip)]
     config: Config,
 }
 impl Manager {
+    fn new(config: Config) -> Self {
+        Self {
+            config,
+            ph_down_state: false,
+            ph_up_state: false,
+        }
+    }
+
     fn register_home_assistant(mut cmd: Commands) {
         #[derive(serde::Serialize)]
         struct Config {

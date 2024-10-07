@@ -1,3 +1,4 @@
+use crate::log;
 use std::{
     fs::OpenOptions,
     io::{BufReader, Write},
@@ -5,7 +6,7 @@ use std::{
 
 pub trait ConfigFile {
     const FILENAME: &'static str;
-    type Config: serde::Serialize + serde::de::DeserializeOwned + Default;
+    type Config: serde::Serialize + serde::de::DeserializeOwned + Default + std::fmt::Debug;
 
     fn load_config() -> serde_json::Result<Self::Config> {
         let filepath = local::filepath(Self::FILENAME);
@@ -30,12 +31,28 @@ pub trait ConfigFile {
             )
             .unwrap();
 
-            Ok(Self::Config::default())
+            let out = Self::Config::default();
+
+            log::info!(
+                "new config file: \"{}\"\n{:#?}",
+                filepath.as_path().to_str().unwrap(),
+                out
+            );
+
+            Ok(out)
         } else {
             let file = OpenOptions::new().read(true).open(&filepath).unwrap();
             let reader = BufReader::new(file);
 
-            serde_json::from_reader(reader)
+            let out = serde_json::from_reader(reader)?;
+
+            log::info!(
+                "existing config file: \"{}\"\n{:#?}",
+                filepath.as_path().to_str().unwrap(),
+                out
+            );
+
+            Ok(out)
         }
     }
 }
