@@ -13,7 +13,8 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         use mqtt::add_on::action_message::StatusMessage;
 
-        app.init_resource::<Manager>()
+        app.init_resource::<SensorDataAwg>()
+            .init_resource::<Manager>()
             .add_plugins((
                 StatusMessage::<Manager, action::Database>::publish_condition(
                     on_timer(Duration::from_secs(60)), //
@@ -204,9 +205,9 @@ impl Manager {
 }
 impl mqtt::add_on::action_message::PublishStatus<action::Database> for Manager {
     fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::Database> {
-        fn func(this: Res<Manager>) -> action::Database {
-            let out = action::Database(this.get_data().into());
-            log::info!("new water quality entry: {out:?}");
+        fn func(mut awg: ResMut<SensorDataAwg>) -> action::Database {
+            let out = action::Database(awg.awg_take().into());
+            log::debug!("new water quality entry: {out:?}");
             out
         }
 
@@ -215,8 +216,10 @@ impl mqtt::add_on::action_message::PublishStatus<action::Database> for Manager {
 }
 impl mqtt::add_on::action_message::PublishStatus<action::MqttStatus> for Manager {
     fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::MqttStatus> {
-        fn func(this: Res<Manager>) -> action::MqttStatus {
-            action::MqttStatus(this.get_data().into())
+        fn func(this: Res<Manager>, mut awg: ResMut<SensorDataAwg>) -> action::MqttStatus {
+            let data = this.get_data();
+            awg.add(data);
+            action::MqttStatus(data.into())
         }
 
         IntoSystem::into_system(func)
@@ -240,6 +243,36 @@ impl SensorData {
 
     fn temp_from_raw(raw_data: u16) -> f32 {
         raw_data as f32 / 10.0
+    }
+}
+
+#[derive(Debug, Default, Resource)]
+struct SensorDataAwg(Vec<SensorData>);
+impl SensorDataAwg {
+    fn add(&mut self, data: SensorData) {
+        self.0.push(data);
+    }
+
+    fn awg_take(&mut self) -> SensorData {
+        let len = self.0.len();
+        let SensorData { ph, ec, temp } = self.0.drain(..).fold(
+            SensorData {
+                ph: 0.0,
+                ec: 0.0,
+                temp: 0.0,
+            },
+            |accum, SensorData { ph, ec, temp }| SensorData {
+                ph: ph + accum.ph,
+                ec: ec + accum.ec,
+                temp: temp + accum.temp,
+            },
+        );
+
+        SensorData {
+            ph: ((ph / len as f32) * 100.0).round() / 100.0,
+            ec: ((ec / len as f32) * 1000.0).round() / 1000.0,
+            temp: ((temp / len as f32) * 10.0).round() / 10.0,
+        }
     }
 }
 
