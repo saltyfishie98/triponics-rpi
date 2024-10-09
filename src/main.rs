@@ -48,6 +48,7 @@ fn main() -> anyhow::Result<()> {
             TokioTasksPlugin::default(),
         ))
         .add_plugins((
+            ExitHandler,
             state_file::Plugin::default(),
             mqtt::Plugin {
                 config: mqtt_config,
@@ -66,14 +67,6 @@ fn main() -> anyhow::Result<()> {
                 config: aeroponic_config,
             },
         ))
-        .add_systems(
-            Startup,
-            (
-                local::ExitMsg::setup, //
-                local::exit_task,
-            ),
-        )
-        .add_systems(Update, (local::ExitMsg::listen,))
         .run();
 
     log::info!("bye!");
@@ -82,7 +75,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod local {
-    use bevy_ecs::world::World;
+    use bevy_ecs::{event::EventWriter, world::World};
     use helper::ErrorLogFormat;
     use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
@@ -114,14 +107,23 @@ mod local {
             );
         }
 
-        pub fn listen(mut ev: EventReader<mqtt::event::IncomingMessage>, mut cmd: Commands) {
-            while let Some(msg) = ev.read().next() {
+        pub fn listen_mqtt(
+            mut mqtt_ev: EventReader<mqtt::event::IncomingMessage>,
+            mut exit: EventWriter<event::Exit>,
+        ) {
+            while let Some(msg) = mqtt_ev.read().next() {
                 if msg.get::<Self>().is_some() {
-                    cmd.add(|world: &mut World| {
-                        let ExitTx(tx) = world.remove_resource::<ExitTx>().unwrap();
-                        tx.send(()).unwrap();
-                    });
+                    exit.send(event::Exit);
                 }
+            }
+        }
+
+        pub fn listen(mut cmd: Commands, ev: EventReader<event::Exit>) {
+            if !ev.is_empty() {
+                cmd.add(|world: &mut World| {
+                    let ExitTx(tx) = world.remove_resource::<ExitTx>().unwrap();
+                    tx.send(()).unwrap();
+                });
             }
         }
     }
@@ -241,50 +243,29 @@ mod local {
             .await;
         });
     }
+}
 
-    // #[derive(bevy_ecs::system::Resource, Clone, serde::Serialize, serde::Deserialize, Debug)]
-    // pub struct Counter {
-    //     data: u32,
-    //     datetime: String,
-    // }
-    // impl plugins::mqtt::message::MessageInfo for Counter {
-    //     fn topic() -> AtomicFixedString {
-    //         "test".into()
-    //     }
+pub mod event {
+    use bevy_ecs::event::Event;
 
-    //     fn qos() -> plugins::mqtt::Qos {
-    //         plugins::mqtt::Qos::_1
-    //     }
-    // }
-    // impl Counter {
-    //     pub fn subscribe(mut cmd: Commands) {
-    //         cmd.insert_resource(Counter {
-    //             data: 0,
-    //             datetime: local::local_time_now_str(),
-    //         });
-    //         cmd.spawn(
-    //             plugins::mqtt::message::Subscriptions::new()
-    //                 .with_msg::<Counter>()
-    //                 .finalize(),
-    //         );
-    //     }
+    #[derive(Event)]
+    pub struct Exit;
+}
 
-    //     pub fn log_msg(mut ev_reader: EventReader<plugins::mqtt::event::IncomingMessage>) {
-    //         while let Some(incoming_msg) = ev_reader.read().next() {
-    //             if let Some(msg) = incoming_msg.get::<Counter>() {
-    //                 log::debug!("receive mqtt msg: {:?}", msg)
-    //             }
-    //         }
-    //     }
-    // }
-
-    // pub fn local_time_now_str() -> String {
-    //     time::OffsetDateTime::now_utc()
-    //         .to_offset(offset!(+8))
-    //         .format(
-    //             &time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
-    //                 .unwrap(),
-    //         )
-    //         .unwrap()
-    // }
+struct ExitHandler;
+impl Plugin for ExitHandler {
+    fn build(&self, app: &mut App) {
+        app.add_event::<event::Exit>()
+            .add_systems(
+                Startup,
+                (
+                    local::ExitMsg::setup, //
+                    local::exit_task,
+                ),
+            )
+            .add_systems(
+                Update,
+                (local::ExitMsg::listen_mqtt, local::ExitMsg::listen),
+            );
+    }
 }
