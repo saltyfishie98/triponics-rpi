@@ -18,7 +18,9 @@ where
     type State<'de>: serde::Serialize + serde::Deserialize<'de>;
     const FILENAME: &str;
 
-    fn build(state: Self::State<'_>) -> Self;
+    fn build(state: Self::State<'_>, this: Option<Self>) -> Self
+    where
+        Self: Sized;
     fn save<'de>(&self) -> Self::State<'de>;
 }
 
@@ -78,8 +80,8 @@ where
                 state_info
             );
 
-            world.remove_resource::<T>();
-            world.insert_resource(T::build(state))
+            let old = world.remove_resource::<T>();
+            world.insert_resource(T::build(state, old))
         } else {
             log::debug!("[state_file] empty state file: {}.json", T::FILENAME);
         };

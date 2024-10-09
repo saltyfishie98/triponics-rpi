@@ -144,8 +144,8 @@ impl Manager {
             topic: "homeassistant/sensor/auto_state/growlight/config".into(),
             payload: {
                 serde_json::to_value(Config {
-                    name: "Auto State",
-                    icon: "mdi:lightbulb-auto",
+                    name: "Growlight Controller Command",
+                    icon: "mdi:car-cruise-control",
                     state_topic: "status/triponics/growlight/0",
                     value_template: "{{ \"ON\" if value_json.state else \"OFF\"}}",
                     device: mqtt::add_on::home_assistant::Device {

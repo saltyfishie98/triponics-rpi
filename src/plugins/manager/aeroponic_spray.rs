@@ -1,5 +1,5 @@
-use bevy_app::Update;
-use bevy_ecs::system::{IntoSystem, Local, Res, ResMut, Resource};
+use bevy_app::{Startup, Update};
+use bevy_ecs::system::{Commands, IntoSystem, Local, Res, ResMut, Resource};
 use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use super::relay_module;
@@ -27,7 +27,8 @@ impl bevy_app::Plugin for Plugin {
                 ),
                 state_file::StateFile::<Manager>::new(),
             ))
-            .add_systems(Update, (Manager::watcher, Manager::update_switch));
+            .add_systems(Startup, (Manager::setup,))
+            .add_systems(Update, (Manager::watcher, Manager::update));
     }
 }
 
@@ -61,21 +62,18 @@ pub struct Manager {
         deserialize_with = "crate::helper::serde_time::deserialize_offset_datetime_as_local"
     )]
     next_spray_time: time::OffsetDateTime,
-    #[serde(
-        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
-        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
-    )]
+    #[serde(skip)]
     spray_duration: std::time::Duration,
-    #[serde(
-        serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
-        deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
-    )]
+    #[serde(skip)]
     spray_interval: std::time::Duration,
 }
 impl Manager {
-    pub fn update_state(&mut self, new_state: bool) {
-        self.sprayer_state = new_state;
-        log::trace!("[aeroponic_spray] state updated -> {:?}", new_state);
+    pub fn turn_on(&mut self) {
+        self.sprayer_state = true;
+    }
+
+    pub fn turn_off(&mut self) {
+        self.sprayer_state = false;
     }
 
     fn new(config: Config) -> Self {
@@ -87,7 +85,62 @@ impl Manager {
         }
     }
 
-    fn update_switch(mut relay_manager: ResMut<relay_module::Manager>, this: Res<Self>) {
+    fn setup(mut cmd: Commands) {
+        use crate::helper::ToBytes;
+        use mqtt::add_on::home_assistant::Device;
+
+        #[derive(serde::Serialize)]
+        struct Config {
+            name: &'static str,
+            icon: &'static str,
+            state_topic: &'static str,
+            value_template: &'static str,
+            device: Device,
+        }
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/state/aeroponic_spray/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Sprayer Controller Command",
+                    icon: "mdi:car-cruise-control",
+                    state_topic: "status/triponics/aeroponics/0",
+                    value_template: "{{ \"ON\" if value_json.sprayer_state else \"OFF\" }}",
+                    device: Device {
+                        identifiers: &["aeroponics"],
+                        name: "Aeroponics",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+
+        cmd.spawn(mqtt::message::Message {
+            topic: "homeassistant/sensor/next_spray_time/aeroponic_spray/config".into(),
+            payload: {
+                serde_json::to_value(Config {
+                    name: "Next Scheduled Spray",
+                    icon: "mdi:clock",
+                    state_topic: "status/triponics/aeroponics/0",
+                    value_template:
+                        "{{ (as_datetime(value_json.next_spray_time) | as_local | string )[:19] }}",
+                    device: Device {
+                        identifiers: &["aeroponics"],
+                        name: "Aeroponics",
+                    },
+                })
+                .unwrap()
+                .to_bytes()
+            },
+            qos: mqtt::Qos::_1,
+            retained: true,
+        });
+    }
+
+    fn update(mut relay_manager: ResMut<relay_module::Manager>, this: Res<Self>) {
         if this.is_changed() {
             if let Err(e) = relay_manager.update_state(
                 relay_module::action::Update {
@@ -108,7 +161,7 @@ impl Manager {
 
         if let Some(end_time) = *maybe_end_time {
             if end_time <= now {
-                this.update_state(false);
+                this.turn_off();
                 *maybe_end_time = None;
                 this.next_spray_time = now + this.spray_interval;
 
@@ -130,7 +183,7 @@ impl Manager {
         if this.next_spray_time <= now && maybe_end_time.is_none() {
             let end_time = now + this.spray_duration;
 
-            this.update_state(true);
+            this.turn_on();
             *maybe_end_time = Some(end_time);
 
             log::info!(
@@ -148,8 +201,17 @@ impl state_file::SaveState for Manager {
 
     const FILENAME: &str = "aeroponic_spray_manager";
 
-    fn build(state: Self::State<'_>) -> Self {
-        state
+    fn build(state: Self::State<'_>, this: Option<Self>) -> Self {
+        if let Some(this) = this {
+            Self {
+                sprayer_state: state.sprayer_state,
+                next_spray_time: state.next_spray_time,
+                spray_duration: this.spray_duration,
+                spray_interval: this.spray_interval,
+            }
+        } else {
+            state
+        }
     }
 
     fn save<'de>(&self) -> Self::State<'de> {
@@ -172,18 +234,9 @@ impl mqtt::add_on::action_message::PublishStatus<action::AeroponicSprayerStatus>
     fn query_state(
     ) -> impl bevy_internal::prelude::System<In = (), Out = action::AeroponicSprayerStatus> {
         fn func(this: Res<Manager>) -> action::AeroponicSprayerStatus {
-            let next_spray_time = if !this.sprayer_state {
-                this.next_spray_time
-                    .to_offset(*crate::timezone_offset())
-                    .to_string()
-                    .into()
-            } else {
-                "".into()
-            };
-
             action::AeroponicSprayerStatus {
                 sprayer_state: this.sprayer_state,
-                next_spray_time,
+                next_spray_time: this.next_spray_time.unix_timestamp().to_string().into(),
             }
         }
 
