@@ -2,14 +2,19 @@ use crate::log;
 use std::{
     fs::OpenOptions,
     io::{BufReader, Write},
+    path::PathBuf,
 };
 
 pub trait ConfigFile {
     const FILENAME: &'static str;
     type Config: serde::Serialize + serde::de::DeserializeOwned + Default + std::fmt::Debug;
 
+    fn config_filepath() -> PathBuf {
+        local::filepath(Self::FILENAME)
+    }
+
     fn save_config(config: Self::Config) -> std::io::Result<()> {
-        let filepath = local::filepath(Self::FILENAME);
+        let filepath = Self::config_filepath();
 
         let mut file = {
             if !filepath.exists() {
@@ -28,8 +33,8 @@ pub trait ConfigFile {
             }
         };
 
-        log::info!(
-            "new config file: \"{}\"\n{:#?}",
+        log::debug!(
+            "new config file: \"{}\"\n{:?}",
             filepath.as_path().to_str().unwrap(),
             config
         );
@@ -44,7 +49,7 @@ pub trait ConfigFile {
     }
 
     fn load_config() -> serde_json::Result<Self::Config> {
-        let filepath = local::filepath(Self::FILENAME);
+        let filepath = Self::config_filepath();
 
         if !filepath.exists() {
             Self::save_config(Self::Config::default()).unwrap();
@@ -55,8 +60,8 @@ pub trait ConfigFile {
 
             let out = serde_json::from_reader(reader)?;
 
-            log::info!(
-                "existing config file: \"{}\"\n{:#?}",
+            log::debug!(
+                "existing config file: \"{}\"\n{:?}",
                 filepath.as_path().to_str().unwrap(),
                 out
             );

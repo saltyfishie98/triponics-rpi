@@ -40,6 +40,29 @@ fn main() -> anyhow::Result<()> {
     let ph_dosing_config = manager::PhDosingManager::load_config().unwrap();
     let growlight_config = manager::GrowlightManager::load_config().unwrap();
 
+    let configs = std::collections::HashMap::from([
+        (
+            mqtt::Plugin::config_filepath(),
+            serde_json::to_string_pretty(&mqtt_config).unwrap(),
+        ),
+        (
+            manager::AeroponicSprayManager::config_filepath(),
+            serde_json::to_string_pretty(&aeroponic_config).unwrap(),
+        ),
+        (
+            manager::PhDosingManager::config_filepath(),
+            serde_json::to_string_pretty(&ph_dosing_config).unwrap(),
+        ),
+        (
+            manager::GrowlightManager::config_filepath(),
+            serde_json::to_string_pretty(&growlight_config).unwrap(),
+        ),
+    ]);
+
+    configs.into_iter().for_each(|(path, config)| {
+        log::info!("loaded config file:\n{}\n{config}", path.to_str().unwrap())
+    });
+
     App::new()
         .add_plugins((
             MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f32(
