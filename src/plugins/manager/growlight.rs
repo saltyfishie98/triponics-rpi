@@ -9,8 +9,10 @@ use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 
 use crate::{
     config::ConfigFile,
+    constants,
     helper::ToBytes,
     log,
+    mqtt::add_on::action_message::ConfigMessage,
     plugins::{manager, mqtt},
 };
 
@@ -35,6 +37,13 @@ impl Default for Config {
         }
     }
 }
+impl mqtt::add_on::action_message::MessageImpl for Config {
+    const PREFIX: &'static str = constants::mqtt_prefix::CONFIG;
+    const PROJECT: &'static str = constants::project::NAME;
+    const GROUP: &'static str = action::GROUP;
+    const DEVICE: &'static str = constants::project::DEVICE;
+    const QOS: mqtt::Qos = action::QOS;
+}
 
 pub struct Plugin {
     pub config: Config,
@@ -51,6 +60,7 @@ impl bevy_app::Plugin for Plugin {
             )))
             .add_plugins((
                 RequestMessage::<Manager>::new(),
+                ConfigMessage::<Manager, Config>::new(),
                 StatusMessage::<Manager, action::StatusMqtt>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)), //
                 ),
