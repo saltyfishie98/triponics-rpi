@@ -70,6 +70,7 @@ impl Manager {
             name: &'static str,
             state_topic: &'static str,
             value_template: &'static str,
+            icon: &'static str,
             device: mqtt::add_on::home_assistant::Device,
         }
 
@@ -124,6 +125,7 @@ impl Manager {
                         identifiers: &["triponics-ph-dosing"],
                         name: "Dosing Pumps",
                     },
+                    icon: "mdi:arrow-down-bold-circle",
                 })
                 .unwrap()
                 .to_bytes()
@@ -143,6 +145,7 @@ impl Manager {
                         identifiers: &["triponics-ph-dosing"],
                         name: "Dosing Pumps",
                     },
+                    icon: "mdi:arrow-up-bold-circle",
                 })
                 .unwrap()
                 .to_bytes()
