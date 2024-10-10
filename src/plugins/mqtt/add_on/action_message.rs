@@ -113,7 +113,11 @@ where
     fn on_save_request(mut ev: EventReader<mqtt::event::IncomingMessage>) {
         while let Some(incoming) = ev.read().next() {
             if let Some(local::SaveCfgMsg(cfg)) = incoming.get::<local::SaveCfgMsg<Cfg>>() {
-                log::debug!("received save config mqtt message");
+                log::info!(
+                    "mqtt received new config:\npath: {}\nconfig: {}\n",
+                    T::config_filepath().to_str().unwrap(),
+                    serde_json::to_string_pretty(&cfg).unwrap()
+                );
                 if let Err(e) = T::save_config(cfg) {
                     log::warn!("failed to save new config, reason: {e}");
                 }

@@ -60,7 +60,10 @@ fn main() -> anyhow::Result<()> {
     ]);
 
     configs.into_iter().for_each(|(path, config)| {
-        log::info!("loaded config file:\n{}\n{config}", path.to_str().unwrap())
+        log::info!(
+            "loaded config file:\npath: {}\nconfig: {config}\n",
+            path.to_str().unwrap()
+        )
     });
 
     App::new()
