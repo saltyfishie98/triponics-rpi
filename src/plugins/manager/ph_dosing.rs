@@ -5,7 +5,7 @@ use bevy_ecs::system::{Commands, Res, Resource};
 use bevy_internal::prelude::DetectChanges;
 use bevy_tokio_tasks::TokioTasksRuntime;
 
-use crate::{config::ConfigFile, helper::ToBytes, log, mqtt, plugins};
+use crate::{config::ConfigFile, constants, helper::ToBytes, log, mqtt, plugins};
 
 pub struct Plugin {
     pub config: Config,
@@ -14,7 +14,10 @@ impl bevy_app::Plugin for Plugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.init_resource::<plugins::manager::RelayManager>()
             .insert_resource(Manager::new(self.config))
-            .add_plugins(mqtt::add_on::action_message::RequestMessage::<Manager>::new())
+            .add_plugins((
+                mqtt::add_on::action_message::RequestMessage::<Manager>::new(),
+                mqtt::add_on::action_message::ConfigMessage::<Manager, Config>::new(),
+            ))
             .add_systems(Startup, (Manager::register_home_assistant,))
             .add_systems(Update, (Manager::update_ph_down, Manager::update_ph_up));
     }
@@ -27,17 +30,20 @@ pub struct Config {
         deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
     )]
     pub unit_time: Duration,
-    pub ph_setpoint: f32,
-    pub ph_daily_delta: f32,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
             unit_time: Duration::from_secs(3),
-            ph_setpoint: 7.0,
-            ph_daily_delta: 0.3,
         }
     }
+}
+impl mqtt::add_on::action_message::MessageImpl for Config {
+    const PREFIX: &'static str = constants::mqtt_prefix::CONFIG;
+    const PROJECT: &'static str = constants::project::NAME;
+    const GROUP: &'static str = action::GROUP;
+    const DEVICE: &'static str = constants::project::DEVICE;
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
 
 #[derive(Debug, Resource)]
