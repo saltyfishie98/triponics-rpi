@@ -11,6 +11,4 @@ pub mod mqtt_prefix {
     pub const REQUEST: &str = "request";
     pub const RESPONSE: &str = "response";
     pub const CONFIG: &str = "configs";
-    pub const LOAD_CONFIGS: &str = "load_configs";
-    pub const SAVE_CONFIGS: &str = "save_configs";
 }

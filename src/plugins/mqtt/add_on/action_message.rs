@@ -99,10 +99,23 @@ where
     fn on_load_request(mut cmd: Commands, mut ev: EventReader<mqtt::event::IncomingMessage>) {
         while let Some(incoming) = ev.read().next() {
             if incoming.get::<local::LoadCfgMsg<Cfg>>().is_some() {
-                log::debug!("received load config mqtt message");
                 if let Ok(cfg) = T::load_config() {
-                    log::info!("mqtt send config: {cfg:?}");
+                    log::debug!("mqtt send config: {cfg:?}");
                     cmd.spawn(cfg.make_mqtt_msg());
+                }
+                break;
+            }
+        }
+
+        ev.clear();
+    }
+
+    fn on_save_request(mut ev: EventReader<mqtt::event::IncomingMessage>) {
+        while let Some(incoming) = ev.read().next() {
+            if let Some(local::SaveCfgMsg(cfg)) = incoming.get::<local::SaveCfgMsg<Cfg>>() {
+                log::debug!("received save config mqtt message");
+                if let Err(e) = T::save_config(cfg) {
+                    log::warn!("failed to save new config, reason: {e}");
                 }
                 break;
             }
@@ -128,7 +141,13 @@ where
 {
     fn build(&self, app: &mut bevy_app::App) {
         app.add_systems(Startup, (ConfigMessage::<T, Cfg>::setup,))
-            .add_systems(Update, (ConfigMessage::<T, Cfg>::on_load_request,));
+            .add_systems(
+                Update,
+                (
+                    ConfigMessage::<T, Cfg>::on_load_request,
+                    ConfigMessage::<T, Cfg>::on_save_request,
+                ),
+            );
     }
 }
 
@@ -243,7 +262,7 @@ mod local {
     pub struct StatusUpdate<Msg: MessageImpl>(Msg);
 
     #[derive(Debug)]
-    pub struct SaveCfgMsg<Cfg>(Cfg)
+    pub struct SaveCfgMsg<Cfg>(pub Cfg)
     where
         Cfg: MessageImpl + Send + Sync + 'static;
     impl<Cfg> serde::Serialize for SaveCfgMsg<Cfg>
@@ -282,7 +301,7 @@ mod local {
     }
 
     #[derive(Debug)]
-    pub struct LoadCfgMsg<Cfg>(Option<Cfg>)
+    pub struct LoadCfgMsg<Cfg>(pub Option<Cfg>)
     where
         Cfg: MessageImpl + Send + Sync + 'static;
     impl<Cfg> serde::Serialize for LoadCfgMsg<Cfg>

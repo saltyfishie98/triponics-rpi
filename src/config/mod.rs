@@ -8,38 +8,47 @@ pub trait ConfigFile {
     const FILENAME: &'static str;
     type Config: serde::Serialize + serde::de::DeserializeOwned + Default + std::fmt::Debug;
 
+    fn save_config(config: Self::Config) -> std::io::Result<()> {
+        let filepath = local::filepath(Self::FILENAME);
+
+        let mut file = {
+            if !filepath.exists() {
+                OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&filepath)
+                    .unwrap()
+            } else {
+                OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(&filepath)
+                    .unwrap()
+            }
+        };
+
+        log::info!(
+            "new config file: \"{}\"\n{:#?}",
+            filepath.as_path().to_str().unwrap(),
+            config
+        );
+
+        file.write_all(
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&serde_json::to_value(config).unwrap(),).unwrap()
+            )
+            .as_bytes(),
+        )
+    }
+
     fn load_config() -> serde_json::Result<Self::Config> {
         let filepath = local::filepath(Self::FILENAME);
 
         if !filepath.exists() {
-            let mut file = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .truncate(true)
-                .open(&filepath)
-                .unwrap();
-
-            file.write_all(
-                format!(
-                    "{}\n",
-                    serde_json::to_string_pretty(
-                        &serde_json::to_value(Self::Config::default()).unwrap(),
-                    )
-                    .unwrap()
-                )
-                .as_bytes(),
-            )
-            .unwrap();
-
-            let out = Self::Config::default();
-
-            log::info!(
-                "new config file: \"{}\"\n{:#?}",
-                filepath.as_path().to_str().unwrap(),
-                out
-            );
-
-            Ok(out)
+            Self::save_config(Self::Config::default()).unwrap();
+            Ok(Self::Config::default())
         } else {
             let file = OpenOptions::new().read(true).open(&filepath).unwrap();
             let reader = BufReader::new(file);
