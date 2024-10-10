@@ -29,12 +29,12 @@ pub struct Config {
         serialize_with = "crate::helper::serde_time::serialize_duration_formatted",
         deserialize_with = "crate::helper::serde_time::deserialize_duration_formatted"
     )]
-    pub unit_time: Duration,
+    pub unit_time_user: Duration,
 }
 impl Default for Config {
     fn default() -> Self {
         Self {
-            unit_time: Duration::from_secs(3),
+            unit_time_user: Duration::from_secs(3),
         }
     }
 }
@@ -184,7 +184,7 @@ impl Manager {
             return;
         }
 
-        let dur = this.config.unit_time;
+        let dur = this.config.unit_time_user;
 
         rt.spawn_background_task(move |mut ctx| async move {
             ctx.run_on_main_thread(|ctx| {
@@ -240,7 +240,7 @@ impl Manager {
             return;
         }
 
-        let dur = this.config.unit_time;
+        let dur = this.config.unit_time_user;
 
         rt.spawn_background_task(move |mut ctx| async move {
             ctx.run_on_main_thread(|ctx| {

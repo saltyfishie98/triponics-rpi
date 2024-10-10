@@ -1,4 +1,4 @@
-use crate::log;
+use crate::{log, AtomicFixedString};
 use std::{
     fs::OpenOptions,
     io::{BufReader, Write},
@@ -48,7 +48,7 @@ pub trait ConfigFile {
         )
     }
 
-    fn load_config() -> serde_json::Result<Self::Config> {
+    fn load_config() -> Result<Self::Config, AtomicFixedString> {
         let filepath = Self::config_filepath();
 
         if !filepath.exists() {
@@ -58,7 +58,13 @@ pub trait ConfigFile {
             let file = OpenOptions::new().read(true).open(&filepath).unwrap();
             let reader = BufReader::new(file);
 
-            let out = serde_json::from_reader(reader)?;
+            let out = serde_json::from_reader(reader).map_err(|e| -> AtomicFixedString {
+                format!(
+                    "error in config file '{}', reason {e}",
+                    filepath.to_str().unwrap()
+                )
+                .into()
+            })?;
 
             log::debug!(
                 "existing config file: \"{}\"\n{:?}",
