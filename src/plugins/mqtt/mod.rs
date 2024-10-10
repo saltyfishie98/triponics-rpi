@@ -120,7 +120,7 @@ impl Plugin {
             while let Some(msg) = stream.next().await {
                 match msg {
                     Some(msg) => {
-                        log::trace!(
+                        log::debug!(
                             "[mqtt] received msg -> {}: {}",
                             msg.topic(),
                             msg.payload_str()
@@ -161,7 +161,7 @@ impl Plugin {
 
             loop {
                 log::trace!("[mqtt] ping!");
-                client.publish(Ping::new().make().into());
+                client.publish(Ping::new().make_mqtt_msg().into());
                 tokio::time::sleep(ping_interval).await;
             }
         }
@@ -360,7 +360,7 @@ impl Plugin {
         let client = client.unwrap();
 
         if !client.inner_client.is_connected() {
-            log::debug!("[mqtt] publish cache -> blocked by mqtt client not connected");
+            log::trace!("[mqtt] publish cache -> blocked by mqtt client not connected");
             restarter.send(event::RestartClient("client not connected"));
             return;
         }
@@ -399,7 +399,7 @@ impl Plugin {
                 match maybe_client {
                     Some(client) => match client.try_publish(msg.clone().into()) {
                         Ok(o) => {
-                            log::debug!("[mqtt] published msg -> {}", o.message());
+                            log::trace!("[mqtt] published msg -> {}", o.message());
                         }
                         Err(e) => {
                             log::warn!("[mqtt] failed to publish message, reason {e}");
@@ -522,7 +522,7 @@ pub mod message {
             out.into()
         }
 
-        fn make(self) -> Message {
+        fn make_mqtt_msg(self) -> Message {
             Message {
                 topic: Self::topic(),
                 payload: self.to_payload(),
@@ -537,8 +537,12 @@ pub mod message {
         subs: Vec<(AtomicFixedString, Qos)>,
     }
     impl SubscriptionsBuilder {
-        pub fn with_msg<T: MessageInfo>(mut self) -> Self {
-            self.subs.push((T::topic(), T::qos()));
+        pub fn with_msg<T: MessageInfo>(self) -> Self {
+            self.with_msg_info(T::topic(), T::qos())
+        }
+
+        fn with_msg_info(mut self, topic: AtomicFixedString, qos: Qos) -> Self {
+            self.subs.push((topic, qos));
             self
         }
 

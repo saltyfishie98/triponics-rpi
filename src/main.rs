@@ -86,8 +86,16 @@ mod local {
     #[derive(Resource)]
     struct ExitRx(tokio::sync::oneshot::Receiver<()>);
 
-    #[derive(Debug, serde::Deserialize, serde::Serialize)]
-    pub struct ExitMsg {}
+    #[derive(Debug, serde::Serialize)]
+    pub struct ExitMsg;
+    impl<'de> serde::Deserialize<'de> for ExitMsg {
+        fn deserialize<D>(_: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Ok(ExitMsg)
+        }
+    }
     impl mqtt::add_on::action_message::MessageImpl for ExitMsg {
         const PREFIX: &'static str = crate::constants::mqtt_prefix::REQUEST;
         const PROJECT: &'static str = crate::constants::project::NAME;

@@ -5,8 +5,10 @@ use bevy_internal::{prelude::DetectChanges, time::common_conditions::on_timer};
 use super::relay_module;
 use crate::{
     config::ConfigFile,
+    constants,
     helper::ErrorLogFormat,
     log,
+    mqtt::add_on::action_message::ConfigMessage,
     plugins::{
         manager,
         mqtt::{self, add_on::action_message::StatusMessage},
@@ -25,6 +27,7 @@ impl bevy_app::Plugin for Plugin {
                 StatusMessage::<Manager, action::AeroponicSprayerStatus>::publish_condition(
                     on_timer(std::time::Duration::from_secs(1)),
                 ),
+                ConfigMessage::<Manager, Config>::new(),
                 state_file::StateFile::<Manager>::new(),
             ))
             .add_systems(Startup, (Manager::setup,))
@@ -52,6 +55,13 @@ impl Default for Config {
             spray_interval: std::time::Duration::from_secs(5 * 60),
         }
     }
+}
+impl mqtt::add_on::action_message::MessageImpl for Config {
+    const PREFIX: &'static str = constants::mqtt_prefix::CONFIG;
+    const PROJECT: &'static str = constants::project::NAME;
+    const GROUP: &'static str = "aeroponics";
+    const DEVICE: &'static str = constants::project::DEVICE;
+    const QOS: mqtt::Qos = mqtt::Qos::_1;
 }
 
 #[derive(Debug, Resource, serde::Serialize, serde::Deserialize)]
@@ -196,6 +206,10 @@ impl Manager {
         }
     }
 }
+impl ConfigFile for Manager {
+    const FILENAME: &'static str = "aeroponic_spray";
+    type Config = Config;
+}
 impl state_file::SaveState for Manager {
     type State<'de> = Self;
 
@@ -242,10 +256,6 @@ impl mqtt::add_on::action_message::PublishStatus<action::AeroponicSprayerStatus>
 
         IntoSystem::into_system(func)
     }
-}
-impl ConfigFile for Manager {
-    const FILENAME: &'static str = "aeroponic_spray";
-    type Config = Config;
 }
 
 pub mod action {

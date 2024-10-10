@@ -67,6 +67,71 @@ where
     }
 }
 
+pub struct ConfigMessage<T, Cfg>
+where
+    T: crate::config::ConfigFile + Send + Sync + 'static,
+    Cfg: MessageImpl + Send + Sync + 'static,
+{
+    _t: PhantomData<T>,
+    _c: PhantomData<Cfg>,
+}
+impl<T, Cfg> ConfigMessage<T, Cfg>
+where
+    T: crate::config::ConfigFile<Config = Cfg> + Send + Sync + 'static,
+    Cfg: MessageImpl + std::fmt::Debug + Send + Sync + 'static,
+{
+    pub fn new() -> Self {
+        Self {
+            _t: PhantomData::<T>,
+            _c: PhantomData::<Cfg>,
+        }
+    }
+
+    fn setup(mut cmd: Commands) {
+        cmd.spawn(
+            mqtt::message::Subscriptions::new()
+                .with_msg::<local::LoadCfgMsg<Cfg>>()
+                .with_msg::<local::SaveCfgMsg<Cfg>>()
+                .finalize(),
+        );
+    }
+
+    fn on_load_request(mut cmd: Commands, mut ev: EventReader<mqtt::event::IncomingMessage>) {
+        while let Some(incoming) = ev.read().next() {
+            if incoming.get::<local::LoadCfgMsg<Cfg>>().is_some() {
+                log::debug!("received load config mqtt message");
+                if let Ok(cfg) = T::load_config() {
+                    log::info!("mqtt send config: {cfg:?}");
+                    cmd.spawn(cfg.make_mqtt_msg());
+                }
+                break;
+            }
+        }
+
+        ev.clear();
+    }
+}
+
+impl<T, Cfg> Default for ConfigMessage<T, Cfg>
+where
+    T: crate::config::ConfigFile<Config = Cfg> + Send + Sync + 'static,
+    Cfg: MessageImpl + Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<T, Cfg> Plugin for ConfigMessage<T, Cfg>
+where
+    T: crate::config::ConfigFile<Config = Cfg> + Send + Sync + 'static,
+    Cfg: MessageImpl + Send + Sync + 'static,
+{
+    fn build(&self, app: &mut bevy_app::App) {
+        app.add_systems(Startup, (ConfigMessage::<T, Cfg>::setup,))
+            .add_systems(Update, (ConfigMessage::<T, Cfg>::on_load_request,));
+    }
+}
+
 pub struct StatusMessage<T, Msg = T>
 where
     T: PublishStatus<Msg>,
@@ -154,7 +219,7 @@ where
             if let Some(request) = incoming_msg.get::<T::Request>() {
                 if let Some(ref mut state) = maybe_state {
                     if let Some(res) = T::update_state(request, state) {
-                        cmd.spawn(res.make());
+                        cmd.spawn(res.make_mqtt_msg());
                     }
                 }
             }
@@ -176,4 +241,82 @@ mod local {
 
     #[derive(Debug, Event)]
     pub struct StatusUpdate<Msg: MessageImpl>(Msg);
+
+    #[derive(Debug)]
+    pub struct SaveCfgMsg<Cfg>(Cfg)
+    where
+        Cfg: MessageImpl + Send + Sync + 'static;
+    impl<Cfg> serde::Serialize for SaveCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            self.0.serialize(serializer)
+        }
+    }
+    impl<'de, Cfg> serde::Deserialize<'de> for SaveCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Ok(Self(Cfg::deserialize(deserializer)?))
+        }
+    }
+    impl<Cfg> MessageInfo for SaveCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn topic() -> AtomicFixedString {
+            format!("save_{}", Cfg::topic()).into()
+        }
+
+        fn qos() -> Qos {
+            Cfg::QOS
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct LoadCfgMsg<Cfg>(Option<Cfg>)
+    where
+        Cfg: MessageImpl + Send + Sync + 'static;
+    impl<Cfg> serde::Serialize for LoadCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            self.0.serialize(serializer)
+        }
+    }
+    impl<'de, Cfg> serde::Deserialize<'de> for LoadCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn deserialize<D>(_: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Ok(Self(None))
+        }
+    }
+    impl<Cfg> MessageInfo for LoadCfgMsg<Cfg>
+    where
+        Cfg: MessageImpl + Send + Sync + 'static,
+    {
+        fn topic() -> AtomicFixedString {
+            format!("load_{}", Cfg::topic()).into()
+        }
+
+        fn qos() -> Qos {
+            Cfg::QOS
+        }
+    }
 }

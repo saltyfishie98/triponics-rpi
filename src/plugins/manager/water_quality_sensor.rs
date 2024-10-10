@@ -87,7 +87,7 @@ impl Manager {
                             ec: SensorData::ec_from_raw(data[1]),
                             temp: SensorData::temp_from_raw(data[2]),
                         };
-                        log::debug!("new sensor data: {new_data:?}");
+                        log::trace!("new sensor data: {new_data:?}");
                         tx.send(new_data).map_err(|e| log::error!("{e}")).unwrap();
                     }
                     Err(e) => {
@@ -207,7 +207,7 @@ impl mqtt::add_on::action_message::PublishStatus<action::Database> for Manager {
     fn query_state() -> impl bevy_internal::prelude::System<In = (), Out = action::Database> {
         fn func(mut awg: ResMut<SensorDataAwg>) -> action::Database {
             let out = action::Database(awg.awg_take().into());
-            log::debug!("new water quality entry: {out:?}");
+            log::trace!("new water quality entry: {out:?}");
             out
         }
 
